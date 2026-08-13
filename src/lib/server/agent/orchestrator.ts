@@ -3100,8 +3100,19 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
 
     qaTelemetry = getTraceTelemetry("qa", qaProviders, qaResult.trace);
     const normalizedQaBlockers = normalizeQaBlockers(qaResult.qa);
+    // Runtime diagnostics are EVIDENCE shown to QA, not verdicts: they
+    // include pass statements like "[terminal] npm run build passed", which
+    // must never fail the gate. Only lines describing an actual failure may
+    // join the blocker set.
+    const failingDiagnostics = runtimeDiagnostics.filter((line) => {
+      const lower = line.toLowerCase();
+      if (/\bpass(?:ed)?\b|\bsucceed(?:ed)?\b|\bno issues\b/.test(lower)) {
+        return false;
+      }
+      return /\bfail(?:ed|ure|s)?\b|\berror\b|\bcannot\b|\bunresolved\b|\bmissing\b|\bcrash/.test(lower);
+    });
     qaHardBlockers = Array.from(
-      new Set(blockingIssues.concat(runtimeDiagnostics).concat(normalizedQaBlockers.hardBlockers))
+      new Set(blockingIssues.concat(failingDiagnostics).concat(normalizedQaBlockers.hardBlockers))
     );
     qaSoftBlockers = normalizedQaBlockers.softBlockers;
     qaPassed = qaHardBlockers.length === 0;
