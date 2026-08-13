@@ -1,7 +1,9 @@
 
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { syncRuntimeEnv } from "@/lib/server/runtime-env";
 
-export type ModelProviderId = "openrouter";
+export type ModelProviderId = "openrouter" | "google" | "mock";
 
 export type ModelProviderPhase =
   | "spec"
@@ -41,6 +43,23 @@ export type ConfiguredModelProvider =
     reasoningEnabled: boolean;
     routing: OpenrouterRouting;
     promptCaching: OpenrouterPromptCaching;
+  }
+  | {
+    provider: "google";
+    phase: ModelProviderPhase;
+    model: string;
+    apiKey: string;
+    baseUrl: string;
+    timeoutMs: number;
+    reasoningEnabled: boolean;
+  }
+  | {
+    provider: "mock";
+    phase: ModelProviderPhase;
+    model: string;
+    fixturesDir: string;
+    timeoutMs: number;
+    reasoningEnabled: boolean;
   };
 
 export interface StructuredPromptInput {
@@ -50,6 +69,10 @@ export interface StructuredPromptInput {
   schema: Record<string, unknown>;
   temperature?: number;
   onPartial?: (partialData: Record<string, unknown>) => void;
+  /** Mock provider fixture key. Defaults to the resolved phase when omitted. */
+  mockFixtureKey?: string;
+  /** Mock provider per-call fixture target (e.g. a file path or task id) for phases invoked multiple times. */
+  mockFixtureTarget?: string;
 };
 
 export type ProviderUsage = {
@@ -657,7 +680,18 @@ function mergeUsage(primary?: ProviderUsage, secondary?: ProviderUsage): Provide
   return merged;
 }
 
-function buildOpenrouterRepairPrompt(schema: Record<string, unknown>, invalidOutput: string): string {
+function buildJsonOutputRequirements(schemaJson: string): string {
+  return `
+Output requirements:
+- Return ONLY valid JSON.
+- Return exactly one JSON object and nothing else.
+- Use double quotes for all keys and string values.
+- Do not emit markdown fences, comments, or trailing commas.
+- The JSON must satisfy this schema:
+${schemaJson}`;
+}
+
+function buildJsonRepairPrompt(schema: Record<string, unknown>, invalidOutput: string): string {
   const truncated = invalidOutput.slice(0, OPENROUTER_MAX_REPAIR_SOURCE_CHARS);
   return [
     "Convert the following model output into valid JSON that satisfies this schema.",
@@ -667,7 +701,7 @@ function buildOpenrouterRepairPrompt(schema: Record<string, unknown>, invalidOut
   ].join("\n\n");
 }
 
-function buildOpenrouterSchemaRepairPrompt(
+function buildJsonSchemaRepairPrompt(
   schema: Record<string, unknown>,
   invalidOutput: string,
   schemaErrors: string[]
@@ -881,6 +915,35 @@ function resolvePhaseModelCandidates(env: NodeJS.ProcessEnv, phase: ModelProvide
   return models;
 }
 
+const GEMINI_DEFAULT_MODEL = "gemini-3-flash-preview";
+const GEMINI_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+
+const GEMINI_PHASE_MODEL_ENV_KEY: Record<ModelProviderPhase, string> = {
+  spec: "GEMINI_MODELS_SPEC",
+  architect: "GEMINI_MODELS_ARCHITECT",
+  scaffold: "GEMINI_MODELS_SCAFFOLD",
+  coder: "GEMINI_MODELS_CODER",
+  repair_primary: "GEMINI_MODELS_REPAIR_PRIMARY",
+  repair_escalation: "GEMINI_MODELS_REPAIR_ESCALATION",
+  qa: "GEMINI_MODELS_QA",
+  finalize: "GEMINI_MODELS_FINALIZE",
+  run_metadata: "GEMINI_MODELS_CODER",
+};
+
+function resolveGeminiPhaseModelCandidates(
+  env: NodeJS.ProcessEnv,
+  phase: ModelProviderPhase
+): string[] {
+  const key = GEMINI_PHASE_MODEL_ENV_KEY[phase];
+  const raw =
+    env[key]?.trim() || env["GEMINI_MODELS_DEFAULT"]?.trim() || GEMINI_DEFAULT_MODEL;
+  const models = parseRequiredCsv(raw);
+  if (models.length === 0) {
+    throw new Error(`Invalid environment variable ${key}: expected at least one model id`);
+  }
+  return models;
+}
+
 function resolveReasoningEnabled(
   env: NodeJS.ProcessEnv,
   phase: ModelProviderPhase
@@ -987,14 +1050,7 @@ async function callOpenrouterStructuredJson<T>(
   };
   const endpoint = `${provider.baseUrl}/chat/completions`;
   const schemaJson = JSON.stringify(input.schema);
-  const outputRequirements = `
-Output requirements:
-- Return ONLY valid JSON.
-- Return exactly one JSON object and nothing else.
-- Use double quotes for all keys and string values.
-- Do not emit markdown fences, comments, or trailing commas.
-- The JSON must satisfy this schema:
-${schemaJson}`;
+  const outputRequirements = buildJsonOutputRequirements(schemaJson);
 
   let systemMessageContent: string | OpenrouterTextPart[];
 
@@ -1337,8 +1393,8 @@ ${schemaJson}`;
     firstParsed === null ? [] : validateJsonAgainstSchema(input.schema, firstParsed);
   const repairPrompt =
     firstParsed === null || firstSchemaErrors.length === 0
-      ? buildOpenrouterRepairPrompt(input.schema, firstPass.content)
-      : buildOpenrouterSchemaRepairPrompt(input.schema, firstPass.content, firstSchemaErrors);
+      ? buildJsonRepairPrompt(input.schema, firstPass.content)
+      : buildJsonSchemaRepairPrompt(input.schema, firstPass.content, firstSchemaErrors);
   const repairPass = await sendOpenrouterRequestWithContinuation([
     {
       role: "system",
@@ -1378,10 +1434,403 @@ ${schemaJson}`;
   };
 }
 
+// ─── Google Gemini Provider ───────────────────────────────────────
+
+const GEMINI_DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+const GEMINI_MAX_REQUEST_ATTEMPTS = 5;
+const GEMINI_RETRY_BASE_DELAY_MS = 2000;
+const GEMINI_RETRY_BACKOFF_FACTOR = 2;
+
+type GeminiRequestResult = {
+  content: string;
+  usage?: ProviderUsage;
+  finishReason?: string;
+};
+
+function extractGeminiUsage(payload: unknown): ProviderUsage | undefined {
+  if (!isObject(payload) || !isObject(payload.usageMetadata)) {
+    return undefined;
+  }
+  const usage = payload.usageMetadata;
+  const inputTokens = Number(usage.promptTokenCount ?? 0);
+  const outputTokens = Number(usage.candidatesTokenCount ?? 0);
+  const totalTokens = Number(usage.totalTokenCount ?? 0);
+  const cachedInputTokens = Number(usage.cachedContentTokenCount ?? 0);
+
+  return {
+    inputTokens: Number.isFinite(inputTokens) ? inputTokens : undefined,
+    outputTokens: Number.isFinite(outputTokens) ? outputTokens : undefined,
+    totalTokens: Number.isFinite(totalTokens) ? totalTokens : undefined,
+    cachedInputTokens:
+      Number.isFinite(cachedInputTokens) && cachedInputTokens > 0 ? cachedInputTokens : undefined,
+  };
+}
+
+function extractGeminiContent(payload: unknown): { content: string; finishReason?: string } {
+  if (!isObject(payload)) {
+    return { content: "" };
+  }
+  const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
+  const firstCandidate = candidates[0];
+  if (!isObject(firstCandidate)) {
+    return { content: "" };
+  }
+  const content = isObject(firstCandidate.content) ? firstCandidate.content : null;
+  const parts = content && Array.isArray(content.parts) ? content.parts : [];
+  const text = parts
+    .map((part) => (isObject(part) && typeof part.text === "string" ? part.text : ""))
+    .join("");
+  const finishReason =
+    typeof firstCandidate.finishReason === "string" ? firstCandidate.finishReason : undefined;
+  return { content: text, finishReason };
+}
+
+function parseGeminiRetryDelayMs(errorPayload: unknown): number | null {
+  if (!isObject(errorPayload)) return null;
+  const errorNode = isObject(errorPayload.error) ? errorPayload.error : null;
+  const details = errorNode && Array.isArray(errorNode.details) ? errorNode.details : [];
+  for (const detail of details) {
+    if (!isObject(detail)) continue;
+    const type = typeof detail["@type"] === "string" ? detail["@type"] : "";
+    if (!type.includes("RetryInfo")) continue;
+    const rawDelay = detail.retryDelay;
+    if (typeof rawDelay === "string") {
+      const match = rawDelay.match(/^([\d.]+)s$/);
+      if (match) {
+        const seconds = Number(match[1]);
+        if (Number.isFinite(seconds)) {
+          return Math.round(seconds * 1000);
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function parseRetryAfterHeaderMs(response: Response): number | null {
+  const raw = response.headers.get("retry-after");
+  if (!raw) return null;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds)) {
+    return Math.max(0, seconds * 1000);
+  }
+  const dateMs = Date.parse(raw);
+  if (!Number.isNaN(dateMs)) {
+    return Math.max(0, dateMs - Date.now());
+  }
+  return null;
+}
+
+function describeGeminiErrorPayload(parsed: unknown, status: number): string {
+  if (!isObject(parsed)) {
+    return `Gemini request failed with status ${status}`;
+  }
+  const errorNode = isObject(parsed.error) ? parsed.error : null;
+  const message =
+    (errorNode && typeof errorNode.message === "string" && errorNode.message.trim()) ||
+    `Gemini request failed with status ${status}`;
+  const statusText =
+    errorNode && typeof errorNode.status === "string" ? errorNode.status.trim() : "";
+
+  const parts = [message, `status=${status}`];
+  if (statusText) {
+    parts.push(`code=${statusText}`);
+  }
+  return truncateText(parts.join(" | "));
+}
+
+async function sendGeminiRequest(
+  provider: Extract<ConfiguredModelProvider, { provider: "google" }>,
+  requestBody: Record<string, unknown>
+): Promise<GeminiRequestResult> {
+  const endpoint = `${provider.baseUrl}/models/${encodeURIComponent(provider.model)}:generateContent?key=${encodeURIComponent(provider.apiKey)}`;
+
+  for (let attempt = 1; attempt <= GEMINI_MAX_REQUEST_ATTEMPTS; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Network request failed";
+      if (attempt < GEMINI_MAX_REQUEST_ATTEMPTS && isTransientTransportMessage(message)) {
+        const waitMs = GEMINI_RETRY_BASE_DELAY_MS * GEMINI_RETRY_BACKOFF_FACTOR ** (attempt - 1);
+        console.warn(
+          `[model-provider] Gemini network error on attempt ${attempt}/${GEMINI_MAX_REQUEST_ATTEMPTS}: ${message}. Retrying in ${waitMs}ms`
+        );
+        await sleep(waitMs);
+        continue;
+      }
+      throw toProviderError("google", message);
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let parsedError: unknown = null;
+      try {
+        parsedError = JSON.parse(errorText);
+      } catch {
+        // Ignore malformed error body; fall through to status-only message.
+      }
+
+      const retryable = response.status === 429 || (response.status >= 500 && response.status < 600);
+      if (retryable && attempt < GEMINI_MAX_REQUEST_ATTEMPTS) {
+        const bodyDelayMs = parseGeminiRetryDelayMs(parsedError);
+        const headerDelayMs = parseRetryAfterHeaderMs(response);
+        const backoffMs = GEMINI_RETRY_BASE_DELAY_MS * GEMINI_RETRY_BACKOFF_FACTOR ** (attempt - 1);
+        const waitMs = bodyDelayMs ?? headerDelayMs ?? backoffMs;
+        console.warn(
+          `[model-provider] Gemini transient error (status=${response.status}) on attempt ${attempt}/${GEMINI_MAX_REQUEST_ATTEMPTS}. Retrying in ${waitMs}ms`
+        );
+        await sleep(waitMs);
+        continue;
+      }
+
+      throw toProviderError(
+        "google",
+        describeGeminiErrorPayload(parsedError, response.status),
+        response.status
+      );
+    }
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      throw toProviderError("google", "Gemini returned non-JSON response body");
+    }
+
+    const usage = extractGeminiUsage(payload);
+    const { content, finishReason } = extractGeminiContent(payload);
+    return { content, usage, finishReason };
+  }
+
+  throw toProviderError("google", "Gemini request retries exhausted");
+}
+
+async function callGoogleStructuredJson<T>(
+  provider: Extract<ConfiguredModelProvider, { provider: "google" }>,
+  input: StructuredPromptInput
+): Promise<Omit<ProviderCallResult<T>, "attempts">> {
+  const diagnostics: ProviderStructuredDiagnostics = {
+    invalidJsonIncidents: 0,
+    invalidSchemaIncidents: 0,
+    schemaRepairAttempts: 0,
+    lengthFinishSignals: 0,
+  };
+
+  const schemaJson = JSON.stringify(input.schema);
+  const outputRequirements = buildJsonOutputRequirements(schemaJson);
+  const baseSystemText =
+    typeof input.systemInstruction === "string"
+      ? input.systemInstruction
+      : input.systemInstruction.map((part) => part.text).join("\n");
+  const systemText = `${baseSystemText}\n${outputRequirements}`;
+  const temperature = Math.max(0, Math.min(1, input.temperature ?? 0.2));
+
+  const buildRequestBody = (systemPromptText: string, userPromptText: string) => ({
+    systemInstruction: { parts: [{ text: systemPromptText }] },
+    contents: [{ role: "user" as const, parts: [{ text: userPromptText }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature,
+      maxOutputTokens: GEMINI_DEFAULT_MAX_OUTPUT_TOKENS,
+    },
+  });
+
+  const firstPass = await sendGeminiRequest(provider, buildRequestBody(systemText, input.userPrompt));
+
+  if (firstPass.finishReason === "MAX_TOKENS") {
+    diagnostics.lengthFinishSignals += 1;
+    throw toProviderError(
+      "google",
+      `Gemini output truncated (finishReason=MAX_TOKENS, chars=${firstPass.content.length})`
+    );
+  }
+
+  const firstParsed = parseModelJsonContent<T>(firstPass.content);
+  if (firstParsed !== null) {
+    const schemaErrors = validateJsonAgainstSchema(input.schema, firstParsed);
+    if (schemaErrors.length === 0) {
+      return {
+        data: firstParsed,
+        provider: "google",
+        model: provider.model,
+        usage: firstPass.usage,
+        diagnostics,
+      };
+    }
+    diagnostics.invalidSchemaIncidents += 1;
+  } else {
+    diagnostics.invalidJsonIncidents += 1;
+  }
+
+  diagnostics.schemaRepairAttempts += 1;
+  const firstSchemaErrors =
+    firstParsed === null ? [] : validateJsonAgainstSchema(input.schema, firstParsed);
+  const repairPrompt =
+    firstParsed === null || firstSchemaErrors.length === 0
+      ? buildJsonRepairPrompt(input.schema, firstPass.content)
+      : buildJsonSchemaRepairPrompt(input.schema, firstPass.content, firstSchemaErrors);
+
+  const repairPass = await sendGeminiRequest(
+    provider,
+    buildRequestBody(
+      "You are a strict JSON repair engine. Return ONLY valid JSON that matches the schema exactly.",
+      repairPrompt
+    )
+  );
+
+  if (repairPass.finishReason === "MAX_TOKENS") {
+    diagnostics.lengthFinishSignals += 1;
+    throw toProviderError(
+      "google",
+      `Gemini output truncated during repair pass (finishReason=MAX_TOKENS, chars=${repairPass.content.length})`
+    );
+  }
+
+  const repairedParsed = parseModelJsonContent<T>(repairPass.content);
+  if (repairedParsed === null) {
+    diagnostics.invalidJsonIncidents += 1;
+    throw toProviderError("google", "Model returned invalid JSON after repair pass");
+  }
+  const repairedSchemaErrors = validateJsonAgainstSchema(input.schema, repairedParsed);
+  if (repairedSchemaErrors.length > 0) {
+    diagnostics.invalidSchemaIncidents += 1;
+    throw toProviderError(
+      "google",
+      `Model returned JSON that failed schema validation after repair pass: ${repairedSchemaErrors
+        .slice(0, 3)
+        .join(" | ")}`
+    );
+  }
+
+  return {
+    data: repairedParsed,
+    provider: "google",
+    model: provider.model,
+    usage: mergeUsage(firstPass.usage, repairPass.usage),
+    diagnostics,
+  };
+}
+
+// ─── Mock Provider (keyless fixtures) ─────────────────────────────
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function slugifyFixtureTarget(target: string): string {
+  const slug = target
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "target";
+}
+
+async function resolveMockFixturePath(context: {
+  fixturesDir: string;
+  key: string;
+  target?: string;
+}): Promise<string> {
+  const attempted: string[] = [];
+
+  if (context.target) {
+    const targeted = path.join(
+      context.fixturesDir,
+      context.key,
+      `${slugifyFixtureTarget(context.target)}.json`
+    );
+    attempted.push(targeted);
+    if (await fileExists(targeted)) {
+      return targeted;
+    }
+
+    const fallback = path.join(context.fixturesDir, context.key, "default.json");
+    attempted.push(fallback);
+    if (await fileExists(fallback)) {
+      return fallback;
+    }
+  } else {
+    const single = path.join(context.fixturesDir, `${context.key}.json`);
+    attempted.push(single);
+    if (await fileExists(single)) {
+      return single;
+    }
+  }
+
+  throw toProviderError(
+    "mock",
+    `No mock fixture found for "${context.key}"${
+      context.target ? ` (target "${context.target}")` : ""
+    }. Looked for: ${attempted.join(", ")}`
+  );
+}
+
+async function callMockStructuredJson<T>(
+  provider: Extract<ConfiguredModelProvider, { provider: "mock" }>,
+  input: StructuredPromptInput
+): Promise<Omit<ProviderCallResult<T>, "attempts">> {
+  const key = input.mockFixtureKey ?? provider.phase;
+  const fixturePath = await resolveMockFixturePath({
+    fixturesDir: provider.fixturesDir,
+    key,
+    target: input.mockFixtureTarget,
+  });
+
+  let raw: string;
+  try {
+    raw = await fs.readFile(fixturePath, "utf8");
+  } catch {
+    throw toProviderError("mock", `Failed to read mock fixture: ${fixturePath}`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw toProviderError("mock", `Mock fixture is not valid JSON: ${fixturePath}`);
+  }
+
+  const schemaErrors = validateJsonAgainstSchema(input.schema, parsed);
+  if (schemaErrors.length > 0) {
+    throw toProviderError(
+      "mock",
+      `Mock fixture failed schema validation (${fixturePath}): ${schemaErrors.slice(0, 5).join(" | ")}`
+    );
+  }
+
+  return {
+    data: parsed as T,
+    provider: "mock",
+    model: provider.model,
+    diagnostics: {
+      invalidJsonIncidents: 0,
+      invalidSchemaIncidents: 0,
+      schemaRepairAttempts: 0,
+      lengthFinishSignals: 0,
+    },
+  };
+}
+
 function callProviderStructuredJson<T>(
   provider: ConfiguredModelProvider,
   input: StructuredPromptInput
 ): Promise<Omit<ProviderCallResult<T>, "attempts">> {
+  if (provider.provider === "google") {
+    return callGoogleStructuredJson(provider, input);
+  }
+  if (provider.provider === "mock") {
+    return callMockStructuredJson(provider, input);
+  }
   return callOpenrouterStructuredJson(provider, input);
 }
 
@@ -1398,7 +1847,7 @@ function appendStatusSuffix(message: string | undefined, status: number | undefi
   return `${base} status=${status}`;
 }
 
-function buildProviderPool(
+function buildOpenrouterProviderPool(
   phase: ModelProviderPhase,
   modelsOverride?: string[]
 ): ConfiguredModelProvider[] {
@@ -1434,6 +1883,81 @@ function buildProviderPool(
     routing: resolveOpenrouterRouting(model),
     promptCaching,
   }));
+}
+
+function buildGoogleProviderPool(
+  phase: ModelProviderPhase,
+  modelsOverride?: string[]
+): ConfiguredModelProvider[] {
+  const env = syncRuntimeEnv();
+
+  const apiKey = requireEnv(env, "GEMINI_API_KEY");
+  const baseUrl = (env["GEMINI_BASE_URL"]?.trim() || GEMINI_DEFAULT_BASE_URL).replace(/\/+$/, "");
+  const models =
+    modelsOverride && modelsOverride.length > 0
+      ? Array.from(new Set(modelsOverride.map((model) => model.trim()).filter(Boolean)))
+      : resolveGeminiPhaseModelCandidates(env, phase);
+  if (models.length === 0) {
+    throw new Error(`No model candidates configured for phase ${phase}`);
+  }
+
+  return models.map((model) => ({
+    provider: "google",
+    phase,
+    model,
+    apiKey,
+    baseUrl,
+    timeoutMs: 0,
+    reasoningEnabled: false,
+  }));
+}
+
+function buildMockProviderPool(
+  phase: ModelProviderPhase,
+  modelsOverride?: string[]
+): ConfiguredModelProvider[] {
+  const env = syncRuntimeEnv();
+
+  const fixturesDir = requireEnv(env, "DEXTER_MOCK_FIXTURES");
+  const models =
+    modelsOverride && modelsOverride.length > 0
+      ? Array.from(new Set(modelsOverride.map((model) => model.trim()).filter(Boolean)))
+      : ["mock-model"];
+
+  return models.map((model) => ({
+    provider: "mock",
+    phase,
+    model,
+    fixturesDir,
+    timeoutMs: 0,
+    reasoningEnabled: false,
+  }));
+}
+
+function resolveDexterModelProviderKind(env: NodeJS.ProcessEnv): "openrouter" | "google" | "mock" {
+  const raw = env["DEXTER_MODEL_PROVIDER"]?.trim().toLowerCase();
+  if (!raw || raw === "openrouter") return "openrouter";
+  if (raw === "google") return "google";
+  if (raw === "mock") return "mock";
+  throw new Error(
+    `Invalid environment variable DEXTER_MODEL_PROVIDER: expected 'openrouter', 'google', or 'mock', got '${raw}'`
+  );
+}
+
+function buildProviderPool(
+  phase: ModelProviderPhase,
+  modelsOverride?: string[]
+): ConfiguredModelProvider[] {
+  const env = syncRuntimeEnv();
+  const kind = resolveDexterModelProviderKind(env);
+
+  if (kind === "google") {
+    return buildGoogleProviderPool(phase, modelsOverride);
+  }
+  if (kind === "mock") {
+    return buildMockProviderPool(phase, modelsOverride);
+  }
+  return buildOpenrouterProviderPool(phase, modelsOverride);
 }
 
 export function getConfiguredModelProviders(): ConfiguredModelProvider[] {

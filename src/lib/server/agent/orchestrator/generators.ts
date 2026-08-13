@@ -269,6 +269,8 @@ async function callStructuredJson<T>(input: {
     schema: Record<string, unknown>;
     temperature?: number;
     onPartial?: (partial: Record<string, unknown>) => void;
+    mockFixtureKey?: string;
+    mockFixtureTarget?: string;
 }): Promise<ProviderCallResult<T>> {
     return callStructuredJsonWithFallback<T>(input.providers, {
         providers: input.providers,
@@ -277,6 +279,8 @@ async function callStructuredJson<T>(input: {
         schema: input.schema,
         temperature: input.temperature,
         onPartial: input.onPartial,
+        mockFixtureKey: input.mockFixtureKey,
+        mockFixtureTarget: input.mockFixtureTarget,
     });
 }
 
@@ -307,6 +311,7 @@ export async function generateSpec(input: {
             "- Include a practical test checklist.",
         ].join("\n\n"),
         onPartial: input.onPartial,
+        mockFixtureKey: "spec",
     });
 
     return {
@@ -364,6 +369,7 @@ export async function generatePlanOutline(input: {
             "- Include meaningful dependsOn and exact taskWriteSet.",
         ].join("\n\n"),
         onPartial: input.onPartial,
+        mockFixtureKey: "plan_outline",
     });
 
     return {
@@ -735,6 +741,7 @@ export async function generateQaVerdict(input: {
             "If there are no corroborated hardBlockers, set blockingDecision to pass.",
         ].join("\n\n"),
         onPartial: input.onPartial,
+        mockFixtureKey: "qa",
     });
 
     return {
@@ -862,6 +869,7 @@ Requirements:
             `Repository map summary:\n${buildRepoMapSummary(input.files)}`,
         ].join("\n\n"),
         onPartial: input.onPartial,
+        mockFixtureKey: "skeleton_dag",
     });
 
     return {
@@ -1046,6 +1054,8 @@ RULES:
             `Per-file contract locks:\n${skeletonContractLocks}`,
         ].join("\n\n"),
         onPartial: input.onPartial,
+        mockFixtureKey: "scaffold",
+        mockFixtureTarget: input.fileContracts[0]?.path,
     });
 
     // Build dependency map for cross-file contract context
@@ -1170,6 +1180,7 @@ export async function generateSkeletonAutofix(input: {
             "- Match file language by extension; never add TypeScript syntax to .js/.jsx/.mjs/.cjs files.",
             "- Do not add runtime behavior beyond stubbed TODO regions.",
         ].join("\n\n"),
+        mockFixtureKey: "skeleton_autofix",
     });
 
     const normalized = normalizeOperationResponse(response.data);
@@ -1241,6 +1252,8 @@ export async function generateCoderFill(input: {
             "- Preserve region intent and ensure valid syntax when merged back into the skeleton.",
         ].join("\n\n"),
         onPartial: input.onPartial,
+        mockFixtureKey: "coder",
+        mockFixtureTarget: targetPath,
     });
 
     const responsePath = normalizePath(response.data.path || targetPath);
@@ -1372,6 +1385,8 @@ export async function generateMissingFillRegions(input: {
             "- Ensure the generated syntax is valid and matches the file type.",
             "- Include exactly one regions[] entry for each missing region ID.",
         ].join("\n\n"),
+        mockFixtureKey: "coder_missing_regions",
+        mockFixtureTarget: targetPath,
     });
 
     const responsePath = normalizePath(response.data.path || targetPath);
@@ -1442,6 +1457,7 @@ export async function generateFixDag(input: {
             "- CRITICAL EXPORT MISMATCH: If an issue says 'Local import X is missing from Y', you MUST ensure your taskWriteSet includes either the importer OR the exporter file so the operations phase can fix the named vs default export mismatch.",
         ].join("\n\n"),
         onPartial: input.onPartial,
+        mockFixtureKey: "fix_dag",
     });
 
     return {
@@ -1497,6 +1513,8 @@ export async function generateFixOperations(input: {
             "- If an issue mentions 'PGlite schema uses CREATE TABLE IF NOT EXISTS without column migration guards', ensure your database initialization clearly returns the `db` variable via a loose `return db;` statement at the end of the init block so the system auto-migration injector can take over. If you must fix it manually, use `information_schema.columns` to check for missing columns and run `ALTER TABLE ADD COLUMN`.",
         ].join("\n\n"),
         onPartial: input.onPartial,
+        mockFixtureKey: "fix_operations",
+        mockFixtureTarget: input.task.id,
     });
     const normalized = normalizeOperationResponse(response.data);
     return {
@@ -1524,6 +1542,7 @@ export async function generateFinalSummary(input: {
                 `Original request:\n${input.userPrompt}`,
                 `Final files:\n${input.files.map((file) => `- ${file.name}`).join("\n")}`,
             ].join("\n\n"),
+            mockFixtureKey: "finalize",
         });
 
         const summary = response.data.summary;
