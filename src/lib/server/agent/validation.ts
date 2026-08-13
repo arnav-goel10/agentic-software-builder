@@ -2880,11 +2880,22 @@ export function normalizeGeneratedFiles(files: GeneratedFile[]): GeneratedFile[]
   return normalized;
 }
 
+export type InvalidFileOperationIssue = {
+  path?: string;
+  reason: string;
+};
+
+export type ApplyFileOperationsResult = {
+  files: GeneratedFile[];
+  appliedOperations: FileOperation[];
+  invalidOperations: InvalidFileOperationIssue[];
+};
+
 export function applyFileOperations(
   currentFiles: GeneratedFile[],
   operations: FileOperation[],
   context?: ApplyOperationContext
-): GeneratedFile[] {
+): ApplyFileOperationsResult {
   const nextMap = new Map<string, GeneratedFile>();
 
   for (const file of normalizeGeneratedFiles(currentFiles)) {
@@ -2898,12 +2909,16 @@ export function applyFileOperations(
     return `op#${index}${phase}${taskId}${opPath}`;
   };
 
+  const appliedOperations: FileOperation[] = [];
+  const invalidOperations: InvalidFileOperationIssue[] = [];
+
   for (let index = 0; index < operations.length; index += 1) {
     const operation = operations[index];
     try {
       if (operation.op === "delete") {
         const normalizedPath = normalizePath(operation.path);
         nextMap.delete(normalizedPath);
+        appliedOperations.push(operation);
         continue;
       }
 
@@ -2918,6 +2933,7 @@ export function applyFileOperations(
           code: operation.code,
           language: operation.language,
         });
+        appliedOperations.push(operation);
         continue;
       }
 
@@ -2952,6 +2968,7 @@ export function applyFileOperations(
           code: `${JSON.stringify(merged, null, 2)}\n`,
           language: existing.language ?? "json",
         });
+        appliedOperations.push(operation);
         continue;
       }
 
@@ -2959,11 +2976,18 @@ export function applyFileOperations(
       throw new Error(`Unsupported file operation: ${String(unsupported.op)}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown operation failure";
-      throw new Error(`${formatPrefix(index, operation.path)} failed: ${message}`);
+      invalidOperations.push({
+        path: operation.path,
+        reason: `${formatPrefix(index, operation.path)} failed: ${message}`,
+      });
     }
   }
 
-  return Array.from(nextMap.values());
+  return {
+    files: Array.from(nextMap.values()),
+    appliedOperations,
+    invalidOperations,
+  };
 }
 
 function deepMergeJson(

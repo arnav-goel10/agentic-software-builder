@@ -31,7 +31,9 @@ import {
   summarizeBlockingIssues,
   buildStructureLocks,
   enforceStructureLockedFillOperations,
+  generateDeterministicValidationFixOperations,
   type FileOperation,
+  type InvalidFileOperationIssue,
   type ValidationIssue,
   type ValidationResult,
   validateSkeletonWorkingTree,
@@ -1198,6 +1200,11 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     );
   };
 
+  // Invalid file operations no longer abort the run (see applyFileOperations).
+  // They are queued here and drained into the next validation gate so the
+  // fix-DAG repair loop gets a chance to see and address them.
+  let pendingOperationIssues: ValidationIssue[] = [];
+
   const applyOperationsWithEngineManifest = (
     currentFiles: GeneratedFile[],
     operations: FileOperation[],
@@ -1206,6 +1213,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     files: GeneratedFile[];
     appliedOperations: FileOperation[];
     strippedPackageOps: number;
+    invalidOperations: InvalidFileOperationIssue[];
   } => {
     const currentByPath = new Map<string, GeneratedFile>();
     for (const file of currentFiles) {
@@ -1238,12 +1246,31 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     });
 
     const { filtered, strippedCount } = stripPackageManifestOperations(sanitized);
-    const appliedFiles =
-      filtered.length > 0 ? applyFileOperations(currentFiles, filtered, context) : currentFiles;
+    const applyResult =
+      filtered.length > 0
+        ? applyFileOperations(currentFiles, filtered, context)
+        : { files: currentFiles, appliedOperations: [] as FileOperation[], invalidOperations: [] as InvalidFileOperationIssue[] };
+
+    if (applyResult.invalidOperations.length > 0) {
+      console.warn(
+        `[orchestrator] Dropped ${applyResult.invalidOperations.length} invalid file operation(s) in phase=${context.phase}${
+          context.taskId ? ` task=${context.taskId}` : ""
+        }: ${applyResult.invalidOperations.map((issue) => issue.reason).join(" | ")}`
+      );
+      for (const issue of applyResult.invalidOperations) {
+        pendingOperationIssues.push({
+          code: "operations.invalid",
+          message: issue.reason,
+          file: issue.path,
+        });
+      }
+    }
+
     return {
-      files: ensureDeterministicPackageManifest(appliedFiles),
-      appliedOperations: filtered,
+      files: ensureDeterministicPackageManifest(applyResult.files),
+      appliedOperations: applyResult.appliedOperations,
       strippedPackageOps: strippedCount,
+      invalidOperations: applyResult.invalidOperations,
     };
   };
 
@@ -1494,20 +1521,77 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     runtimeDiagnostics: string[];
     terminalBuild: TerminalBuildCheckResult;
   }> => {
-    const validation = await validateFinalWorkingTree(files);
+    let validation = await validateFinalWorkingTree(files);
+
+    // Run the deterministic fixer before ever falling back to an LLM fix-DAG
+    // pass: cheap, offline, mechanical fixes (Tailwind directives, process.env
+    // usage, PGlite migration guards, etc.) should not cost a model call.
+    if (validation.issues.length > 0) {
+      const fixPlan = generateDeterministicValidationFixOperations(
+        validation.files,
+        validation.issues
+      );
+      if (fixPlan.operations.length > 0) {
+        const applied = applyOperationsWithEngineManifest(validation.files, fixPlan.operations, {
+          phase: "deterministic_autofix",
+        });
+        const counts = countOperationKinds(applied.appliedOperations);
+        diagnostics.totalOperations += applied.appliedOperations.length;
+        diagnostics.totalUpserts += counts.upserts;
+        diagnostics.totalDeletes += counts.deletes;
+
+        const revalidated = await validateFinalWorkingTree(applied.files);
+
+        const autofixStep = createRunStep({
+          runId,
+          seq: seq++,
+          phase: "repair",
+          status: "complete",
+          title: "Deterministic autofix",
+          detail: `Deterministic autofix applied ${applied.appliedOperations.length} operation(s); ${revalidated.issues.length} issue(s) remain`,
+          payload: {
+            attemptedIssueCodes: fixPlan.attemptedIssueCodes,
+            fixedIssueCodes: fixPlan.fixedIssueCodes,
+            appliedOperationCount: applied.appliedOperations.length,
+            invalidOperationCount: applied.invalidOperations.length,
+            issuesBefore: validation.issues.length,
+            issuesAfter: revalidated.issues.length,
+          },
+        });
+        publishStep(run, autofixStep.id);
+
+        validation = revalidated;
+      }
+    }
+
     const terminalBuild = await runTerminalBuildCheck(validation.files, {
       runtimeGateTimeoutMs,
       projectId: run.project_id,
     });
-    const combinedIssues = terminalBuild.passed
-      ? validation.issues
-      : validation.issues.concat(terminalBuild.issues);
+
+    // Drain any invalid-file-operation issues queued since the last gate so
+    // the fix-DAG loop gets a chance to see and address them, rather than
+    // silently dropping them (or crashing the run) at the point they occurred.
+    const drainedOperationIssues = pendingOperationIssues;
+    pendingOperationIssues = [];
+
+    const combinedIssues: ValidationIssue[] = [
+      ...validation.issues,
+      ...(terminalBuild.passed ? [] : terminalBuild.issues),
+      ...drainedOperationIssues,
+    ];
     const runtimeDiagnostics = Array.from(
       new Set([...validation.runtimeDiagnostics, ...terminalBuild.diagnostics])
     );
+
+    const blockingIssues = summarizeBlockingIssues(combinedIssues);
+    if (blockingIssues.length > 0) {
+      diagnostics.validationFailures += 1;
+    }
+
     return {
       validation,
-      blockingIssues: summarizeBlockingIssues(combinedIssues),
+      blockingIssues,
       runtimeDiagnostics,
       terminalBuild,
     };
