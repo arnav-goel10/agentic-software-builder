@@ -67,7 +67,7 @@ async function main() {
     projectId: project.id,
     threadId: thread.id,
     triggerMessageId: triggerMessage.id,
-    model: "google/gemini-3-flash-preview",
+    model: "google/gemini-2.5-flash",
   });
   console.log(`[live-run] run=${run.id} — executing against the live provider...`);
   const startedAt = Date.now();

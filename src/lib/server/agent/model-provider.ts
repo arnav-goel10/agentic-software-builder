@@ -915,7 +915,7 @@ function resolvePhaseModelCandidates(env: NodeJS.ProcessEnv, phase: ModelProvide
   return models;
 }
 
-const GEMINI_DEFAULT_MODEL = "gemini-3-flash-preview";
+const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash";
 const GEMINI_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
 const GEMINI_PHASE_MODEL_ENV_KEY: Record<ModelProviderPhase, string> = {
