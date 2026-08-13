@@ -1,0 +1,23 @@
+{
+  "summary": "A minimal single-page todo app: add, complete, and remove tasks, stored in local component state.",
+  "requirements": [
+    "Users can add a new todo item via a text input.",
+    "Users can mark a todo item as complete or incomplete.",
+    "Users can remove a todo item from the list."
+  ],
+  "acceptanceCriteria": [
+    "Adding a todo appends it to the visible list.",
+    "Toggling a todo visually marks it as done (e.g. strikethrough).",
+    "Removing a todo removes it from the visible list.",
+    "The app renders without a runtime crash in preview."
+  ],
+  "nonGoals": [
+    "No backend persistence or accounts are required for this pass."
+  ],
+  "testChecklist": [
+    "Open the app and confirm the todo list and input render.",
+    "Add a todo and confirm it appears in the list.",
+    "Toggle a todo and confirm its completed styling updates.",
+    "Remove a todo and confirm it disappears from the list."
+  ]
+}

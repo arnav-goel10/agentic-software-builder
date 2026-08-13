@@ -1,0 +1,10 @@
+{
+  "summary": "App skeleton with a stubbed state/handlers region",
+  "operations": [
+    {
+      "op": "upsert",
+      "path": "src/App.jsx",
+      "code": "import React, { useState } from \"react\";\nimport TodoList from \"./components/TodoList\";\n\nexport default function App() {\n  // BEGIN_FILL:app_logic\n  // TODO: FILL_IN\n  // END_FILL:app_logic\n\n  return (\n    <main className=\"min-h-screen bg-slate-950 text-slate-100 p-8\">\n      <div className=\"mx-auto max-w-xl\">\n        <h1 className=\"text-3xl font-semibold mb-6\">Todo App</h1>\n        <TodoList\n          todos={todos}\n          onAdd={handleAdd}\n          onToggle={handleToggle}\n          onRemove={handleRemove}\n        />\n      </div>\n    </main>\n  );\n}\n"
+    }
+  ]
+}

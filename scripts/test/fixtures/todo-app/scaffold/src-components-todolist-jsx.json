@@ -1,0 +1,10 @@
+{
+  "summary": "TodoList skeleton with a stubbed render region",
+  "operations": [
+    {
+      "op": "upsert",
+      "path": "src/components/TodoList.jsx",
+      "code": "import React, { useState } from \"react\";\n\nexport default function TodoList({ todos, onAdd, onToggle, onRemove }) {\n  // BEGIN_FILL:todolist_render\n  // TODO: FILL_IN\n  // END_FILL:todolist_render\n}\n"
+    }
+  ]
+}

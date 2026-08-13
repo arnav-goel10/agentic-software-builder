@@ -1,0 +1,84 @@
+{
+  "summary": "Two-file skeleton: App.jsx owns todo state, TodoList.jsx renders and edits it.",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Build the todo app UI and state",
+      "instructions": "Create src/App.jsx as the entry component owning todo state, and src/components/TodoList.jsx as the presentational list with add/toggle/remove controls.",
+      "objectiveType": "direct_fix",
+      "dependsOn": [],
+      "taskWriteSet": ["src/App.jsx", "src/components/TodoList.jsx"]
+    }
+  ],
+  "fileContracts": [
+    {
+      "path": "src/App.jsx",
+      "purpose": "Entry component that owns todo list state and renders TodoList.",
+      "imports": [
+        { "source": "react", "names": ["default", "useState"] },
+        { "source": "./components/TodoList", "names": ["default"] }
+      ],
+      "exports": [
+        {
+          "name": "default",
+          "kind": "default",
+          "signature": "() => JSX.Element",
+          "description": "App root component rendering the todo list UI."
+        }
+      ]
+    },
+    {
+      "path": "src/components/TodoList.jsx",
+      "purpose": "Presentational list of todos with add/toggle/remove controls.",
+      "imports": [
+        { "source": "react", "names": ["default", "useState"] }
+      ],
+      "exports": [
+        {
+          "name": "default",
+          "kind": "default",
+          "signature": "({ todos, onAdd, onToggle, onRemove }) => JSX.Element",
+          "description": "Renders the todo input and list, calling the provided callbacks."
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "path": "src/App.jsx",
+      "purpose": "Entry component that owns todo list state and renders TodoList.",
+      "imports": [
+        { "source": "react", "names": ["default", "useState"] },
+        { "source": "./components/TodoList", "names": ["default"] }
+      ],
+      "exports": [
+        {
+          "name": "default",
+          "kind": "default",
+          "signature": "() => JSX.Element",
+          "description": "App root component rendering the todo list UI."
+        }
+      ],
+      "routeOwnership": "route:src/App.jsx",
+      "externalLibraries": ["react"],
+      "dependsOnPaths": ["src/components/TodoList.jsx"]
+    },
+    {
+      "path": "src/components/TodoList.jsx",
+      "purpose": "Presentational list of todos with add/toggle/remove controls.",
+      "imports": [
+        { "source": "react", "names": ["default", "useState"] }
+      ],
+      "exports": [
+        {
+          "name": "default",
+          "kind": "default",
+          "signature": "({ todos, onAdd, onToggle, onRemove }) => JSX.Element",
+          "description": "Renders the todo input and list, calling the provided callbacks."
+        }
+      ],
+      "externalLibraries": ["react"],
+      "dependsOnPaths": []
+    }
+  ]
+}

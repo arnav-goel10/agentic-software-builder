@@ -1,0 +1,13 @@
+{
+  "summary": "Single pass: build the App shell and a TodoList component that owns add/toggle/remove interactions.",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Build the todo app UI and state",
+      "instructions": "Create src/App.jsx as the entry component owning todo state, and src/components/TodoList.jsx as the presentational list with add/toggle/remove controls.",
+      "objectiveType": "direct_fix",
+      "dependsOn": [],
+      "taskWriteSet": ["src/App.jsx", "src/components/TodoList.jsx"]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "summary": "Filled todo list rendering and add form",
+  "path": "src/components/TodoList.jsx",
+  "regions": [
+    {
+      "regionId": "todolist_render",
+      "body": "const [draft, setDraft] = useState(\"\");\n\nconst submitDraft = () => {\n  onAdd(draft);\n  setDraft(\"\");\n};\n\nreturn (\n  <div>\n    <div className=\"flex gap-2 mb-4\">\n      <input\n        className=\"flex-1 rounded bg-slate-900 border border-slate-700 px-3 py-2\"\n        value={draft}\n        onChange={(event) => setDraft(event.target.value)}\n        placeholder=\"What needs doing?\"\n      />\n      <button className=\"rounded bg-cyan-500 px-4 py-2\" onClick={submitDraft}>\n        Add\n      </button>\n    </div>\n    <ul className=\"space-y-2\">\n      {todos.map((todo) => (\n        <li key={todo.id} className=\"flex items-center justify-between rounded bg-slate-900 px-3 py-2\">\n          <label className=\"flex items-center gap-2\">\n            <input type=\"checkbox\" checked={todo.done} onChange={() => onToggle(todo.id)} />\n            <span className={todo.done ? \"line-through text-slate-500\" : \"\"}>{todo.text}</span>\n          </label>\n          <button className=\"text-slate-400 hover:text-red-400\" onClick={() => onRemove(todo.id)}>\n            Remove\n          </button>\n        </li>\n      ))}\n    </ul>\n  </div>\n);"
+    }
+  ]
+}

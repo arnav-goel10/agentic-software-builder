@@ -1,0 +1,3 @@
+{
+  "summary": "Built a single-page todo app: App.jsx owns the todo list state, and TodoList.jsx renders items with add, toggle, and remove controls."
+}

@@ -1,0 +1,10 @@
+{
+  "summary": "Filled todo state and handlers",
+  "path": "src/App.jsx",
+  "regions": [
+    {
+      "regionId": "app_logic",
+      "body": "const [todos, setTodos] = useState([]);\n\nconst handleAdd = (text) => {\n  const trimmed = text.trim();\n  if (!trimmed) return;\n  setTodos((prev) => [...prev, { id: Date.now(), text: trimmed, done: false }]);\n};\n\nconst handleToggle = (id) => {\n  setTodos((prev) =>\n    prev.map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo))\n  );\n};\n\nconst handleRemove = (id) => {\n  setTodos((prev) => prev.filter((todo) => todo.id !== id));\n};"
+    }
+  ]
+}

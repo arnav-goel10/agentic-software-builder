@@ -11,6 +11,7 @@
     "qa:snapshot": "node scripts/agent/validate-snapshot.mjs --allow-empty",
     "qa:run-failures": "node scripts/agent/analyze-run-failures.mjs --allow-empty",
     "qa:agent": "npm run qa:wireup && npm run qa:snapshot && npm run qa:run-failures",
+    "test:loop": "tsx scripts/test/mock-run.mjs",
     "refresh": "docker compose stop app && docker compose up --build --force-recreate app",
     "logs": "docker compose logs -f app",
     "nuke": "docker rm -f hateable-app-1 2>/dev/null || true && docker compose down -v --remove-orphans && docker compose up --build -d",
@@ -45,6 +46,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
+    "tsx": "^4.23.12",
     "typescript": "^5"
   }
 }
