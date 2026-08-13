@@ -1,4 +1,4 @@
-# Hateable (Dexter)
+# Agentic Software Builder (Hateable / Dexter)
 
 An agentic software-building system: give it a natural-language brief, and it takes a project through explicit specification, planning, task execution, deterministic validation, QA, and finalisation phases.
 
