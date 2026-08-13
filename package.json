@@ -1,0 +1,50 @@
+{
+  "name": "h4",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "qa:wireup": "node scripts/agent/check-deterministic-wireup.mjs",
+    "qa:snapshot": "node scripts/agent/validate-snapshot.mjs --allow-empty",
+    "qa:run-failures": "node scripts/agent/analyze-run-failures.mjs --allow-empty",
+    "qa:agent": "npm run qa:wireup && npm run qa:snapshot && npm run qa:run-failures",
+    "refresh": "docker compose stop app && docker compose up --build --force-recreate app",
+    "logs": "docker compose logs -f app",
+    "nuke": "docker rm -f hateable-app-1 2>/dev/null || true && docker compose down -v --remove-orphans && docker compose up --build -d",
+    "benchmark:v35": "node scripts/bench/run-v35-benchmark.mjs"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-slider": "^1.3.6",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@webcontainer/api": "^1.6.1",
+    "@xterm/addon-fit": "^0.11.0",
+    "better-sqlite3": "^12.6.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.33.0",
+    "lucide-react": "^0.563.0",
+    "next": "16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "tailwind-merge": "^3.4.0",
+    "xterm": "^5.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20.19.33",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

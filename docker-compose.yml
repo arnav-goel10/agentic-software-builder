@@ -1,0 +1,19 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DEXTER_DB_PATH: /app/data/dexter.sqlite
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./.env:/app/.env:ro
+      - dexter_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  dexter_data:
