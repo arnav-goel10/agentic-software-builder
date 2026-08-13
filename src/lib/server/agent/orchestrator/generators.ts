@@ -846,6 +846,7 @@ export async function generateSkeletonSpecDag(input: {
 
 Requirements:
 - Output both high-level planning tasks and file-level nodes.
+- The DAG MUST include a src/App.jsx node: the root application component. src/main.jsx already exists, is system-owned, and renders the default export of src/App.jsx, so every UI you plan must compose up into src/App.jsx.
 - Each node MUST include path, purpose, imports, exports, externalLibraries, dependsOnPaths.
 - Use exact export signatures and import names.
 - If a node path ends with .js/.jsx/.mjs/.cjs, signatures MUST be JavaScript-style (no TypeScript annotation syntax).

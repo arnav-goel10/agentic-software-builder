@@ -917,6 +917,8 @@ function normalizeSkeletonDagNodes(
     return Array.from(map.values()).sort((left, right) => left.path.localeCompare(right.path));
 }
 
+const APP_ROOT_PATH_PATTERN = /^src\/App\.(jsx|tsx|js|ts)$/;
+
 export function normalizeSkeletonSpecDagResponse(
     candidate: unknown,
     fallbackPrompt: string
@@ -924,6 +926,39 @@ export function normalizeSkeletonSpecDagResponse(
     const payload = candidate as Partial<SkeletonSpecDagResponse & ArchitectPlanResponse>;
     const plan = normalizeArchitectPlanResponse(payload, fallbackPrompt);
     const nodes = normalizeSkeletonDagNodes((payload as { nodes?: unknown }).nodes, plan.fileContracts);
+    // The system-owned src/main.jsx renders src/App.jsx unconditionally, so a
+    // DAG that forgets the app root is guaranteed to fail skeleton
+    // validation on an unresolved import the model is not allowed to fix.
+    // Inject it deterministically, depending on every other node so it is
+    // generated last with the full set of sibling signatures available.
+    const hasAppRoot =
+        nodes.some((node) => APP_ROOT_PATH_PATTERN.test(node.path)) ||
+        plan.fileContracts.some((contract) => APP_ROOT_PATH_PATTERN.test(contract.path));
+    if (!hasAppRoot && nodes.length > 0) {
+        const appExports = [
+            {
+                name: "App",
+                kind: "default" as const,
+                signature: "function App(): JSX element",
+                description:
+                    "Root application component rendered by src/main.jsx; composes the feature components into the page.",
+            },
+        ];
+        plan.fileContracts.push({
+            path: "src/App.jsx",
+            purpose: "Application root that composes the generated feature components.",
+            imports: [],
+            exports: appExports,
+        });
+        nodes.push({
+            path: "src/App.jsx",
+            purpose: "Application root that composes the generated feature components.",
+            imports: [],
+            exports: appExports,
+            externalLibraries: [],
+            dependsOnPaths: nodes.map((node) => node.path),
+        });
+    }
     return {
         summary:
             typeof payload.summary === "string" && payload.summary.trim().length > 0
