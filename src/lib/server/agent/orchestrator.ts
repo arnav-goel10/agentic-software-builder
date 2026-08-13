@@ -236,6 +236,76 @@ function getFixDagMaxPasses(): number {
   );
 }
 
+const DEFAULT_FILL_CONCURRENCY = 3;
+const MAX_FILL_CONCURRENCY = 20;
+
+function getFillConcurrency(): number {
+  return parseBoundedIntegerEnv(
+    process.env.DEXTER_FILL_CONCURRENCY,
+    DEFAULT_FILL_CONCURRENCY,
+    1,
+    MAX_FILL_CONCURRENCY
+  );
+}
+
+/**
+ * Tiny inline semaphore: runs `worker` over `items` with at most `limit`
+ * calls in flight at once, preserving result order. Rejects as soon as any
+ * worker throws (mirrors Promise.all), without cancelling in-flight work.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const boundedLimit = Math.max(1, Math.min(limit, items.length));
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  const runNext = async (): Promise<void> => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await worker(items[currentIndex], currentIndex);
+    }
+  };
+
+  await Promise.all(Array.from({ length: boundedLimit }, runNext));
+  return results;
+}
+
+/**
+ * Same bounded-concurrency runner as mapWithConcurrency, but settles every
+ * item like Promise.allSettled instead of rejecting on the first failure.
+ */
+async function mapSettledWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<PromiseSettledResult<R>[]> {
+  if (items.length === 0) return [];
+  const boundedLimit = Math.max(1, Math.min(limit, items.length));
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let nextIndex = 0;
+
+  const runNext = async (): Promise<void> => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      try {
+        const value = await worker(items[currentIndex], currentIndex);
+        results[currentIndex] = { status: "fulfilled", value };
+      } catch (error) {
+        results[currentIndex] = { status: "rejected", reason: error };
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: boundedLimit }, runNext));
+  return results;
+}
+
 function isSkeletonValidationEnabled(): boolean {
   return parseBooleanEnv(process.env.DEXTER_ENABLE_SKELETON_VALIDATION, true);
 }
@@ -1664,6 +1734,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   const runtimeGateTimeoutMs = getRuntimeGateTimeoutMs();
   const skeletonAutofixPasses = getSkeletonAutofixPasses();
   const fixDagMaxPasses = getFixDagMaxPasses();
+  const fillConcurrencyLimit = getFillConcurrency();
 
   // ── Spec ──
   const specStep = createRunStep({
@@ -1996,8 +2067,10 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   for (let tierIndex = 0; tierIndex < nodeTiers.length; tierIndex += 1) {
     const tier = nodeTiers[tierIndex];
     if (signal?.aborted) throw new Error("Run cancelled");
-    const tierResults = await Promise.all(
-      tier.map(async ({ node }) => {
+    const tierResults = await mapWithConcurrency(
+      tier,
+      fillConcurrencyLimit,
+      async ({ node }) => {
         const result = await generateSkeletonFile({
           providers: scaffoldProviders,
           node,
@@ -2020,7 +2093,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
           },
         });
         return { path: normalizePath(node.path), result };
-      })
+      }
     );
 
     const tierOps: FileOperation[] = tierResults.map(({ path, result }) => {
@@ -2236,7 +2309,6 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   // ── Fill Parallel ──
   if (signal?.aborted) throw new Error("Run cancelled");
   run = updateRunAndReload(runId, "executing");
-  const fillConcurrency = Math.max(1, skeletonMap.size);
 
   const fillStep = createRunStep({
     runId,
@@ -2244,10 +2316,10 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     phase: "coder",
     status: "running",
     title: "Fill function bodies in parallel",
-    detail: `Filling ${skeletonMap.size} files (max parallel)`,
+    detail: `Filling ${skeletonMap.size} files (concurrency ${Math.min(fillConcurrencyLimit, Math.max(1, skeletonMap.size))})`,
     payload: {
       skeletonCount: skeletonMap.size,
-      concurrency: fillConcurrency,
+      concurrency: Math.min(fillConcurrencyLimit, Math.max(1, skeletonMap.size)),
     },
   });
   publishStep(run, fillStep.id);
@@ -2259,8 +2331,10 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   const fillProviders = resolvePhaseProviders("coder");
   const fillResults = new Map<string, OperationResult>();
 
-  const fillSettled = await Promise.allSettled(
-    Array.from(skeletonMap.entries()).map(async ([nextPath, skeleton]) => {
+  const fillSettled = await mapSettledWithConcurrency(
+    Array.from(skeletonMap.entries()),
+    fillConcurrencyLimit,
+    async ([nextPath, skeleton]) => {
       try {
         const result = await generateFillForSkeleton({
           providers: fillProviders,
@@ -2289,7 +2363,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
         const reason = error instanceof Error ? error.message : String(error ?? "fill generation failed");
         throw new Error(`[${nextPath}] ${reason}`);
       }
-    })
+    }
   );
 
   const lengthHitFiles = new Set<string>();
@@ -2762,17 +2836,15 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
       const isParallel = tier.length > 1 && areFixWriteSetsDisjoint(tier);
 
       if (isParallel) {
-        const tierResults = await Promise.all(
-          tier.map((task) =>
-            generateFixOperations({
-              providers: fixDagProviders,
-              userPrompt: triggerMessage.content,
-              threadContext,
-              spec,
-              files: workingFiles,
-              task,
-            }).then((result) => ({ task, result }))
-          )
+        const tierResults = await mapWithConcurrency(tier, fillConcurrencyLimit, (task) =>
+          generateFixOperations({
+            providers: fixDagProviders,
+            userPrompt: triggerMessage.content,
+            threadContext,
+            spec,
+            files: workingFiles,
+            task,
+          }).then((result) => ({ task, result }))
         );
 
         for (const { task, result } of tierResults.sort((left, right) =>
