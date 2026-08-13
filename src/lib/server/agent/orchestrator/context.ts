@@ -475,6 +475,7 @@ export function toModelTrace<T>(result: ProviderCallResult<T>): ModelTrace {
                 ? attempt.message.slice(0, 180)
                 : undefined,
         })),
+        diagnostics: result.diagnostics,
     };
 }
 

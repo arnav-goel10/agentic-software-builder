@@ -1559,6 +1559,16 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     return merged;
   };
 
+  // model-provider.ts computes invalid-JSON/schema counters per call
+  // (ProviderStructuredDiagnostics) but nothing ever read them back off the
+  // ModelTrace. Every call site that receives a trace should route it
+  // through here so RunDiagnostics reflects what actually happened.
+  const accumulateProviderDiagnostics = (trace: ModelTrace | null | undefined): void => {
+    if (!trace?.diagnostics) return;
+    diagnostics.invalidJsonIncidents += trace.diagnostics.invalidJsonIncidents;
+    diagnostics.invalidSchemaIncidents += trace.diagnostics.invalidSchemaIncidents;
+  };
+
   const getTraceTelemetry = (
     phase: ModelProviderPhase,
     phaseProviders: ConfiguredModelProvider[],
@@ -1569,6 +1579,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     reasoningEnabled: boolean;
     phaseTimeoutMs: number;
   } => {
+    accumulateProviderDiagnostics(trace);
     const modelCandidates = phaseProviders.map((provider) => provider.model);
     const selectedAttempt = trace.attempts.find((attempt) => attempt.ok) ?? trace.attempts.at(-1);
     const selectedModel = selectedAttempt?.model ?? modelCandidates[0] ?? "unknown";
@@ -2092,6 +2103,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
             });
           },
         });
+        accumulateProviderDiagnostics(result.trace);
         return { path: normalizePath(node.path), result };
       }
     );
@@ -2226,6 +2238,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
         issues: skeletonIssues.map((issue) => `${issue.file ?? "unknown"}: ${issue.message}`),
         fileContracts: allFileContracts,
       });
+      accumulateProviderDiagnostics(autofixResult.trace);
 
       const autofixOps = autofixResult.operations.filter(
         (operation): operation is { op: "upsert"; path: string; code: string } =>
@@ -2375,6 +2388,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   for (const settled of fillSettled) {
     if (settled.status === "fulfilled") {
       fillResults.set(settled.value.path, settled.value.result);
+      accumulateProviderDiagnostics(settled.value.result.trace);
       if ((settled.value.result.lengthFinishSignals ?? 0) > 0) {
         lengthHitFiles.add(settled.value.path);
       }
@@ -2448,6 +2462,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     for (const settled of fallbackSettled) {
       if (settled.status === "fulfilled") {
         fillResults.set(settled.value.path, settled.value.result);
+        accumulateProviderDiagnostics(settled.value.result.trace);
         fallbackRecoveredFiles.push(settled.value.path);
         unresolvedLengthFailures.delete(settled.value.path);
         continue;
@@ -2565,6 +2580,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     const missingFallbackFailures: Array<{ path: string; message: string }> = [];
     for (const settled of missingFallbackSettled) {
       if (settled.status === "fulfilled") {
+        accumulateProviderDiagnostics(settled.value.result.trace);
         const pathName = settled.value.path;
         const skeleton = skeletonMap.get(pathName);
         if (!skeleton) {
@@ -2662,6 +2678,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   diagnostics.totalOperations += fillApply.appliedOperations.length;
   diagnostics.totalUpserts += fillCounts.upserts;
   diagnostics.totalDeletes += fillCounts.deletes;
+  diagnostics.tasksCompleted += fillResults.size;
 
   updateRunStep({
     stepId: fillStep.id,
@@ -2792,6 +2809,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   const enableFixDag = isFixDagEnabled();
   while (enableFixDag && blockingIssues.length > 0 && remediationPass < fixDagMaxPasses) {
     remediationPass += 1;
+    diagnostics.repairPasses += 1;
     run = updateRunAndReload(runId, "repairing");
 
     const fixDagStep = createRunStep({
@@ -2850,6 +2868,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
         for (const { task, result } of tierResults.sort((left, right) =>
           left.task.id.localeCompare(right.task.id)
         )) {
+          accumulateProviderDiagnostics(result.trace);
           const applied = applyOperationsWithEngineManifest(workingFiles, result.operations, {
             phase: "fix_dag",
             taskId: task.id,
@@ -2881,6 +2900,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
             files: workingFiles,
             task,
           });
+          accumulateProviderDiagnostics(result.trace);
           const applied = applyOperationsWithEngineManifest(workingFiles, result.operations, {
             phase: "fix_dag",
             taskId: task.id,
@@ -3179,6 +3199,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     userPrompt: triggerMessage.content,
     files: workingFiles,
   });
+  accumulateProviderDiagnostics(summaryResult.trace);
   const summary = summaryResult.summary || provisionalSummary;
 
   createMessage({

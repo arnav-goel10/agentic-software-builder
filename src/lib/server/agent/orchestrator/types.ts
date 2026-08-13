@@ -194,6 +194,13 @@ export interface ModelTrace {
         durationMs: number;
         message?: string;
     }>;
+    /** Per-call invalid-JSON/schema/truncation counters from the winning provider call. */
+    diagnostics?: {
+        invalidJsonIncidents: number;
+        invalidSchemaIncidents: number;
+        schemaRepairAttempts: number;
+        lengthFinishSignals: number;
+    };
 }
 
 export interface OperationResult {
