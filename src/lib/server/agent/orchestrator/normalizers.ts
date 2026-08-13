@@ -19,6 +19,7 @@ import type {
 } from "./types";
 import type { FileOperation } from "@/lib/server/agent/validation";
 import { normalizePath } from "@/lib/server/agent/validation";
+import { isEngineOwnedConfigPath } from "@/lib/server/agent/package-manifest";
 import { MAX_PLAN_TASKS } from "./prompts";
 import type { ExecutionMode, TaskObjectiveType } from "@/lib/server/types";
 
@@ -925,7 +926,21 @@ export function normalizeSkeletonSpecDagResponse(
 ): SkeletonSpecDagResponse {
     const payload = candidate as Partial<SkeletonSpecDagResponse & ArchitectPlanResponse>;
     const plan = normalizeArchitectPlanResponse(payload, fallbackPrompt);
-    const nodes = normalizeSkeletonDagNodes((payload as { nodes?: unknown }).nodes, plan.fileContracts);
+    let nodes = normalizeSkeletonDagNodes((payload as { nodes?: unknown }).nodes, plan.fileContracts);
+    // System-owned files (entrypoints + build configs) are seeded
+    // deterministically and protected from model edits, so planning nodes
+    // for them wastes generation calls and guarantees doomed fill attempts.
+    plan.fileContracts = plan.fileContracts.filter(
+        (contract) => !isEngineOwnedConfigPath(normalizePath(contract.path))
+    );
+    nodes = nodes
+        .filter((node) => !isEngineOwnedConfigPath(normalizePath(node.path)))
+        .map((node) => ({
+            ...node,
+            dependsOnPaths: node.dependsOnPaths.filter(
+                (dependencyPath) => !isEngineOwnedConfigPath(normalizePath(dependencyPath))
+            ),
+        }));
     // The system-owned src/main.jsx renders src/App.jsx unconditionally, so a
     // DAG that forgets the app root is guaranteed to fail skeleton
     // validation on an unresolved import the model is not allowed to fix.

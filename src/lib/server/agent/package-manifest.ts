@@ -96,7 +96,7 @@ type ParsedPackageJson = {
 
 type PackageBucket = "dependencies" | "devDependencies";
 
-function isEngineOwnedConfigPath(path: string): boolean {
+export function isEngineOwnedConfigPath(path: string): boolean {
   return (
     path === PACKAGE_JSON_PATH ||
     /^vite\.config\.(js|ts|mjs|cjs)$/.test(path) ||
