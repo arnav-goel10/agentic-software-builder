@@ -291,6 +291,30 @@ function classifyExecutionMode(input: {
   return looksLikeFollowup ? "followup_fix_mode" : "feature_mode";
 }
 
+/**
+ * Wraps a planning-phase generation call with a single additional retry:
+ * if the first attempt throws (provider pool exhausted) or `execute` itself
+ * throws after inspecting a structurally-empty result, retry exactly once
+ * with a corrective note describing the failure appended to the prompt.
+ * Only if the retry also fails does the error propagate and fail the run.
+ */
+async function withCorrectivePromptRetry<T>(
+  label: string,
+  execute: (correctiveNote?: string) => Promise<T>
+): Promise<T> {
+  try {
+    return await execute();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
+    console.warn(
+      `[orchestrator] ${label} failed on first attempt; retrying once. Reason: ${message}`
+    );
+    return execute(
+      `IMPORTANT: The previous attempt failed with: "${message}". Address this specifically and return a complete, valid response.`
+    );
+  }
+}
+
 function normalizeQaBlockers(qa: QaResponse): {
   hardBlockers: string[];
   softBlockers: string[];
@@ -1654,24 +1678,28 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   publishStep(run, specStep.id);
 
   const specProviders = resolvePhaseProviders("spec");
-  const specResult = await generateSpec({
-    providers: specProviders,
-    userPrompt: triggerMessage.content,
-    threadContext,
-    priorRunContext,
-    files: workingFiles,
-    onPartial: (partial) => {
-      publishRunEvent({
-        type: "spec_progress",
-        payload: {
-          runId,
-          projectId: run.project_id,
-          timestamp: Date.now(),
-          ...partial,
-        },
-      });
-    },
-  });
+  const specResult = await withCorrectivePromptRetry("spec generation", (correctiveNote) =>
+    generateSpec({
+      providers: specProviders,
+      userPrompt: correctiveNote
+        ? `${triggerMessage.content}\n\n${correctiveNote}`
+        : triggerMessage.content,
+      threadContext,
+      priorRunContext,
+      files: workingFiles,
+      onPartial: (partial) => {
+        publishRunEvent({
+          type: "spec_progress",
+          payload: {
+            runId,
+            projectId: run.project_id,
+            timestamp: Date.now(),
+            ...partial,
+          },
+        });
+      },
+    })
+  );
   const spec = specResult.spec;
 
   const starterSelection = starterTemplatesEnabled
@@ -1762,26 +1790,30 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   publishStep(run, planOutlineStep.id);
 
   const planOutlineProviders = resolvePhaseProviders("architect");
-  const planOutlineResult = await generatePlanOutline({
-    providers: planOutlineProviders,
-    userPrompt: triggerMessage.content,
-    threadContext: planOutlineContextPack.text,
-    spec,
-    files: workingFiles,
-    diversitySeed: selectedDiversitySeed ?? undefined,
-    executionMode,
-    onPartial: (partial) => {
-      publishRunEvent({
-        type: "architect_progress",
-        payload: {
-          runId,
-          projectId: run.project_id,
-          timestamp: Date.now(),
-          ...partial,
-        },
-      });
-    },
-  });
+  const planOutlineResult = await withCorrectivePromptRetry("plan outline generation", (correctiveNote) =>
+    generatePlanOutline({
+      providers: planOutlineProviders,
+      userPrompt: correctiveNote
+        ? `${triggerMessage.content}\n\n${correctiveNote}`
+        : triggerMessage.content,
+      threadContext: planOutlineContextPack.text,
+      spec,
+      files: workingFiles,
+      diversitySeed: selectedDiversitySeed ?? undefined,
+      executionMode,
+      onPartial: (partial) => {
+        publishRunEvent({
+          type: "architect_progress",
+          payload: {
+            runId,
+            projectId: run.project_id,
+            timestamp: Date.now(),
+            ...partial,
+          },
+        });
+      },
+    })
+  );
 
   const planOutline = planOutlineResult.plan;
   planOutline.tasks = dedupeTasksBeforeExecution(planOutline.tasks, executionMode);
@@ -1838,27 +1870,45 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   publishStep(run, skeletonDagStep.id);
 
   const skeletonDagProviders = resolvePhaseProviders("architect");
-  const skeletonDagResult = await generateSkeletonSpecDag({
-    providers: skeletonDagProviders,
-    userPrompt: triggerMessage.content,
-    threadContext: planOutlineContextPack.text,
-    spec,
-    files: workingFiles,
-    planOutline,
-    diversitySeed: selectedDiversitySeed ?? undefined,
-    executionMode,
-    onPartial: (partial) => {
-      publishRunEvent({
-        type: "architect_progress",
-        payload: {
-          runId,
-          projectId: run.project_id,
-          timestamp: Date.now(),
-          ...partial,
+  const skeletonDagResult = await withCorrectivePromptRetry(
+    "skeleton DAG generation",
+    async (correctiveNote) => {
+      const result = await generateSkeletonSpecDag({
+        providers: skeletonDagProviders,
+        userPrompt: correctiveNote
+          ? `${triggerMessage.content}\n\n${correctiveNote}`
+          : triggerMessage.content,
+        threadContext: planOutlineContextPack.text,
+        spec,
+        files: workingFiles,
+        planOutline,
+        diversitySeed: selectedDiversitySeed ?? undefined,
+        executionMode,
+        onPartial: (partial) => {
+          publishRunEvent({
+            type: "architect_progress",
+            payload: {
+              runId,
+              projectId: run.project_id,
+              timestamp: Date.now(),
+              ...partial,
+            },
+          });
         },
       });
-    },
-  });
+
+      const contractCount =
+        result.dag.fileContracts.length +
+        result.dag.tasks.flatMap((task) => task.fileContracts ?? []).length;
+      if (contractCount === 0 || result.dag.nodes.length === 0) {
+        throw new Error(
+          "Skeleton DAG spec returned zero fileContracts or zero nodes. You MUST return at least one file contract and one node for the entry App component (e.g. src/App.jsx), including its imports, exports, and purpose."
+        );
+      }
+
+      return result;
+    }
+  );
   const skeletonDag = skeletonDagResult.dag;
   const allFileContracts: FileContract[] = Array.from(
     new Map(
