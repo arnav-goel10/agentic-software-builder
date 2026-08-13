@@ -55,13 +55,13 @@ function printRunSteps(runId) {
 }
 
 const BRIEF =
-  "Build a habit tracker. I want to add habits, check them off for today, see a simple per-habit weekly streak count, and delete habits I no longer want.";
+  "Build a counter app: a big count display, increment and decrement buttons, a reset button, and a small history list showing every change.";
 
 async function main() {
   console.log(`[live-run] Provider: ${process.env.DEXTER_MODEL_PROVIDER}`);
   console.log(`[live-run] Scratch DB: ${dbPath}`);
-  const project = createProject({ name: "Live Habit Tracker Run" });
-  const thread = createThread({ projectId: project.id, title: "Build a habit tracker" });
+  const project = createProject({ name: "Live Counter Run" });
+  const thread = createThread({ projectId: project.id, title: "Build a counter app" });
   const triggerMessage = createMessage({ threadId: thread.id, role: "user", content: BRIEF });
   const run = createRun({
     projectId: project.id,

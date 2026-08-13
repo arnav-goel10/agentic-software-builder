@@ -915,7 +915,9 @@ function resolvePhaseModelCandidates(env: NodeJS.ProcessEnv, phase: ModelProvide
   return models;
 }
 
-const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash";
+// A chain, not a single model: free-tier quotas are small per-model daily
+// buckets, so a run must be able to fail over down the list mid-flight.
+const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash,gemini-2.5-flash-lite,gemini-2.0-flash";
 const GEMINI_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
 const GEMINI_PHASE_MODEL_ENV_KEY: Record<ModelProviderPhase, string> = {
@@ -1547,12 +1549,33 @@ function describeGeminiErrorPayload(parsed: unknown, status: number): string {
   return truncateText(parts.join(" | "));
 }
 
+// Models whose free-tier daily quota is exhausted for the life of this
+// process: skip them instantly instead of burning five long backoff waits
+// on every subsequent call.
+const geminiQuotaDeadModels = new Set<string>();
+
+function isGeminiDailyQuotaError(parsedError: unknown): boolean {
+  if (!isObject(parsedError)) return false;
+  const errorNode = isObject(parsedError.error) ? parsedError.error : null;
+  const message =
+    errorNode && typeof errorNode.message === "string" ? errorNode.message : "";
+  return message.includes("free_tier_requests");
+}
+
 async function sendGeminiRequest(
   provider: Extract<ConfiguredModelProvider, { provider: "google" }>,
   requestBody: Record<string, unknown>
 ): Promise<GeminiRequestResult> {
+  if (geminiQuotaDeadModels.has(provider.model)) {
+    throw toProviderError(
+      "google",
+      `Daily free-tier quota already exhausted for ${provider.model}; skipping to the next model`,
+      429
+    );
+  }
   const endpoint = `${provider.baseUrl}/models/${encodeURIComponent(provider.model)}:generateContent?key=${encodeURIComponent(provider.apiKey)}`;
 
+  let freeTierQuotaHits = 0;
   for (let attempt = 1; attempt <= GEMINI_MAX_REQUEST_ATTEMPTS; attempt += 1) {
     let response: Response;
     try {
@@ -1581,6 +1604,24 @@ async function sendGeminiRequest(
         parsedError = JSON.parse(errorText);
       } catch {
         // Ignore malformed error body; fall through to status-only message.
+      }
+
+      if (response.status === 429 && isGeminiDailyQuotaError(parsedError)) {
+        freeTierQuotaHits += 1;
+        // One hit could still be a per-minute window; a second hit after a
+        // real wait means the daily bucket for this model is gone. Mark it
+        // dead so every later call fails over immediately.
+        if (freeTierQuotaHits >= 2) {
+          geminiQuotaDeadModels.add(provider.model);
+          console.warn(
+            `[model-provider] ${provider.model} free-tier daily quota exhausted; failing over to the next configured model`
+          );
+          throw toProviderError(
+            "google",
+            describeGeminiErrorPayload(parsedError, response.status),
+            response.status
+          );
+        }
       }
 
       const retryable = response.status === 429 || (response.status >= 500 && response.status < 600);
