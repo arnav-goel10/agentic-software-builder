@@ -1276,7 +1276,11 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   const resolvePhaseProviders = (phase: ModelProviderPhase): ConfiguredModelProvider[] =>
     getConfiguredModelProvidersForPhase(phase);
   const resolveLengthFallbackProviders = (): ConfiguredModelProvider[] => {
-    const models = parseCsvEnv(process.env.OPENROUTER_MODELS_CODER_LENGTH_FALLBACK);
+    const activeProvider = (process.env.DEXTER_MODEL_PROVIDER ?? "openrouter").trim().toLowerCase();
+    const models =
+      activeProvider === "google"
+        ? parseCsvEnv(process.env.GEMINI_MODELS_CODER_LENGTH_FALLBACK ?? "gemini-2.5-flash")
+        : parseCsvEnv(process.env.OPENROUTER_MODELS_CODER_LENGTH_FALLBACK);
     if (models.length === 0) {
       return [];
     }

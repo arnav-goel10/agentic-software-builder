@@ -1436,7 +1436,15 @@ async function callOpenrouterStructuredJson<T>(
 
 // ─── Google Gemini Provider ───────────────────────────────────────
 
-const GEMINI_DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+const GEMINI_MAX_OUTPUT_TOKENS_CEILING = 65536;
+
+function geminiDefaultMaxOutputTokens(): number {
+  const raw = Number.parseInt(process.env.GEMINI_MAX_OUTPUT_TOKENS ?? "", 10);
+  if (Number.isFinite(raw) && raw > 0) {
+    return Math.min(raw, GEMINI_MAX_OUTPUT_TOKENS_CEILING);
+  }
+  return 32768;
+}
 const GEMINI_MAX_REQUEST_ATTEMPTS = 5;
 const GEMINI_RETRY_BASE_DELAY_MS = 2000;
 const GEMINI_RETRY_BACKOFF_FACTOR = 2;
@@ -1630,17 +1638,27 @@ async function callGoogleStructuredJson<T>(
   const systemText = `${baseSystemText}\n${outputRequirements}`;
   const temperature = Math.max(0, Math.min(1, input.temperature ?? 0.2));
 
+  let outputTokenCap = geminiDefaultMaxOutputTokens();
+
   const buildRequestBody = (systemPromptText: string, userPromptText: string) => ({
     systemInstruction: { parts: [{ text: systemPromptText }] },
     contents: [{ role: "user" as const, parts: [{ text: userPromptText }] }],
     generationConfig: {
       responseMimeType: "application/json",
       temperature,
-      maxOutputTokens: GEMINI_DEFAULT_MAX_OUTPUT_TOKENS,
+      maxOutputTokens: outputTokenCap,
     },
   });
 
-  const firstPass = await sendGeminiRequest(provider, buildRequestBody(systemText, input.userPrompt));
+  let firstPass = await sendGeminiRequest(provider, buildRequestBody(systemText, input.userPrompt));
+
+  if (firstPass.finishReason === "MAX_TOKENS" && outputTokenCap < GEMINI_MAX_OUTPUT_TOKENS_CEILING) {
+    // Truncation is usually the cap, not the model: raise it once and retry
+    // before giving up, so a long single-file fill does not fail the call.
+    diagnostics.lengthFinishSignals += 1;
+    outputTokenCap = GEMINI_MAX_OUTPUT_TOKENS_CEILING;
+    firstPass = await sendGeminiRequest(provider, buildRequestBody(systemText, input.userPrompt));
+  }
 
   if (firstPass.finishReason === "MAX_TOKENS") {
     diagnostics.lengthFinishSignals += 1;
