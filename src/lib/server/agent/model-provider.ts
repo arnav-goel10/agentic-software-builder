@@ -1588,7 +1588,13 @@ async function sendGeminiRequest(
         const bodyDelayMs = parseGeminiRetryDelayMs(parsedError);
         const headerDelayMs = parseRetryAfterHeaderMs(response);
         const backoffMs = GEMINI_RETRY_BASE_DELAY_MS * GEMINI_RETRY_BACKOFF_FACTOR ** (attempt - 1);
-        const waitMs = bodyDelayMs ?? headerDelayMs ?? backoffMs;
+        // Free-tier 429s are per-minute quotas: the server often hints a
+        // sub-second retry that lands in the SAME exhausted window. Take the
+        // largest of every signal and, for 429s, an escalating floor that
+        // guarantees the wait crosses into a fresh minute window.
+        const rateLimitFloorMs =
+          response.status === 429 ? Math.min(15000 * attempt, 60000) : 0;
+        const waitMs = Math.max(bodyDelayMs ?? 0, headerDelayMs ?? 0, backoffMs, rateLimitFloorMs);
         console.warn(
           `[model-provider] Gemini transient error (status=${response.status}) on attempt ${attempt}/${GEMINI_MAX_REQUEST_ATTEMPTS}. Retrying in ${waitMs}ms`
         );
