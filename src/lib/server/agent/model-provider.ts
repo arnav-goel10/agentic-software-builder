@@ -917,7 +917,7 @@ function resolvePhaseModelCandidates(env: NodeJS.ProcessEnv, phase: ModelProvide
 
 // A chain, not a single model: free-tier quotas are small per-model daily
 // buckets, so a run must be able to fail over down the list mid-flight.
-const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash,gemini-2.5-flash-lite,gemini-2.0-flash";
+const GEMINI_DEFAULT_MODEL = "gemini-3.5-flash,gemini-3.5-flash-lite,gemini-2.5-flash";
 const GEMINI_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
 const GEMINI_PHASE_MODEL_ENV_KEY: Record<ModelProviderPhase, string> = {

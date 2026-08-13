@@ -1436,7 +1436,22 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
 
   const ensureFillRegionMarkers = (filePath: string, code: string): string => {
     if (/\/\/\s*BEGIN_FILL:[A-Za-z0-9_-]+/.test(code)) {
-      return code;
+      // The model wrote its own markers: keep the structure but not the ids.
+      // Duplicate ids (e.g. four regions all named "Counter") break region
+      // matching in the fill merge, so uniquify repeats deterministically.
+      const seen = new Map<string, number>();
+      return code.replace(
+        /(\/\/\s*BEGIN_FILL:)([A-Za-z0-9_-]+)([^\n]*\n[\s\S]*?\/\/\s*END_FILL:)\2/g,
+        (whole, beginPrefix: string, id: string, middle: string) => {
+          const count = (seen.get(id) ?? 0) + 1;
+          seen.set(id, count);
+          if (count === 1) {
+            return whole;
+          }
+          const uniqueId = `${id}_${count}`;
+          return `${beginPrefix}${uniqueId}${middle}${uniqueId}`;
+        }
+      );
     }
 
     const scriptKind = (() => {
