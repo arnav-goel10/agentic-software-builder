@@ -1,11 +1,15 @@
 import type { GeneratedFile } from "@/lib/server/types";
 import type { FileOperation } from "@/lib/server/agent/validation";
 import { normalizePath } from "@/lib/server/agent/validation";
+import { getEngineOwnedEntrypointFiles } from "@/lib/server/agent/orchestrator/starter-templates";
 
 export const PACKAGE_JSON_PATH = "package.json";
 const VITE_CONFIG_PATH = "vite.config.js";
 const POSTCSS_CONFIG_PATH = "postcss.config.js";
 const TAILWIND_CONFIG_PATH = "tailwind.config.js";
+const INDEX_HTML_PATH = "index.html";
+const MAIN_JSX_PATH = "src/main.jsx";
+const INDEX_CSS_PATH = "src/index.css";
 
 const DEFAULT_PACKAGE_NAME = "dexter-project";
 
@@ -97,7 +101,10 @@ function isEngineOwnedConfigPath(path: string): boolean {
     path === PACKAGE_JSON_PATH ||
     /^vite\.config\.(js|ts|mjs|cjs)$/.test(path) ||
     /^postcss\.config\.(js|ts|mjs|cjs)$/.test(path) ||
-    /^tailwind\.config\.(js|ts|mjs|cjs)$/.test(path)
+    /^tailwind\.config\.(js|ts|mjs|cjs)$/.test(path) ||
+    path === INDEX_HTML_PATH ||
+    path === MAIN_JSX_PATH ||
+    path === INDEX_CSS_PATH
   );
 }
 
@@ -342,6 +349,19 @@ export default {
   return next;
 }
 
+function ensureBaselineEntrypointFiles(files: GeneratedFile[]): GeneratedFile[] {
+  const next = [...files];
+  const names = new Set(next.map((file) => normalizePath(file.name)));
+
+  for (const entrypointFile of getEngineOwnedEntrypointFiles()) {
+    if (!names.has(normalizePath(entrypointFile.name))) {
+      next.push(entrypointFile);
+    }
+  }
+
+  return next;
+}
+
 function sortRecord(record: Record<string, string>): Record<string, string> {
   const sorted: Record<string, string> = {};
   for (const key of Object.keys(record).sort((a, b) => a.localeCompare(b))) {
@@ -441,8 +461,10 @@ export function ensureDeterministicPackageManifest(files: GeneratedFile[]): Gene
     devDependencies: sortRecord(devDependencies),
   };
 
-  const normalizedFiles = ensureBaselineBuildConfigs(
-    files.filter((file) => normalizePath(file.name) !== PACKAGE_JSON_PATH)
+  const normalizedFiles = ensureBaselineEntrypointFiles(
+    ensureBaselineBuildConfigs(
+      files.filter((file) => normalizePath(file.name) !== PACKAGE_JSON_PATH)
+    )
   );
   normalizedFiles.push({
     name: PACKAGE_JSON_PATH,

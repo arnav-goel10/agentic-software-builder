@@ -196,6 +196,18 @@ function cloneTemplateFiles(files: GeneratedFile[]): GeneratedFile[] {
   return files.map((file) => ({ ...file }));
 }
 
+const ENGINE_OWNED_ENTRYPOINT_PATHS = new Set(["index.html", "src/main.jsx", "src/index.css"]);
+
+/**
+ * The bootstrap files SHARED_TECHNICAL_CONSTRAINTS promises models are already
+ * provided (index.html, src/main.jsx, src/index.css). Exposed separately from
+ * getStarterTemplateFiles() so package-manifest.ts can seed just these three
+ * deterministically, independent of whether full starter templates are enabled.
+ */
+export function getEngineOwnedEntrypointFiles(): GeneratedFile[] {
+  return cloneTemplateFiles(SHARED_FILES.filter((file) => ENGINE_OWNED_ENTRYPOINT_PATHS.has(file.name)));
+}
+
 function withTemplateAppAndExtras(params: {
   appCode: string;
   extras?: GeneratedFile[];
