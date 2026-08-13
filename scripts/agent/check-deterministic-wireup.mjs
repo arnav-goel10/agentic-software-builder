@@ -34,8 +34,8 @@ function run() {
         /type:\s*"run_snapshot"[\s\S]*taskId:\s*"skeleton_snapshot"[\s\S]*before fill/i,
     },
     {
-      name: "fill_uses_all_settled",
-      pattern: /const fillSettled = await Promise\.allSettled\(/,
+      name: "fill_uses_bounded_concurrency",
+      pattern: /const fillSettled = await mapSettledWithConcurrency\(/,
     },
     {
       name: "skeleton_validation_uses_skeleton_validator",
@@ -43,7 +43,7 @@ function run() {
     },
     {
       name: "final_validation_uses_final_validator",
-      pattern: /const validation = await validateFinalWorkingTree\(files\);/,
+      pattern: /let validation = await validateFinalWorkingTree\(files\);/,
     },
     {
       name: "fix_dag_conditional_loop",
