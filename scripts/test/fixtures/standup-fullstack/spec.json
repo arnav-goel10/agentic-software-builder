@@ -1,0 +1,25 @@
+{
+  "summary": "A team standup tracker: teammates post a short update via an API, and the whole team sees the running list.",
+  "requirements": [
+    "Users can post a standup update (name + message) that is saved server-side.",
+    "Users can see the list of everyone's posted updates, newest first.",
+    "Updates persist across page reloads and are shared across every client, not just the browser that posted them."
+  ],
+  "acceptanceCriteria": [
+    "Posting an update saves it via a server API and it appears in the list without a manual refresh.",
+    "Reloading the page still shows previously posted updates (server-side persistence, not per-browser storage).",
+    "The app renders without a runtime crash in preview."
+  ],
+  "nonGoals": [
+    "No authentication or per-user accounts for this pass."
+  ],
+  "testChecklist": [
+    "Open the app and confirm the update form and list render.",
+    "Post an update and confirm it appears at the top of the list.",
+    "Confirm the update was persisted via the API, not just local component state."
+  ],
+  "stackProfile": "express-fullstack",
+  "stackProfileReasoning": "Updates must be shared across every teammate's client, not just the posting browser, so persistence has to live behind a real server API rather than browser-only PGlite.",
+  "designLanguage": "dense-dashboard",
+  "designLanguageReasoning": "A running feed of short status updates from a team is exactly the compact, scannable, data-first layout dense-dashboard is built for."
+}

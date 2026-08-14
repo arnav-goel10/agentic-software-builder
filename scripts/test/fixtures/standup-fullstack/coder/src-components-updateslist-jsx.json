@@ -1,0 +1,10 @@
+{
+  "summary": "Filled updates list rendering",
+  "path": "src/components/UpdatesList.jsx",
+  "regions": [
+    {
+      "regionId": "updates_render",
+      "body": "return (\n  <ul className=\"space-y-3\">\n    {updates.map((update) => (\n      <li key={update.id} className=\"rounded border border-slate-700 p-3\">\n        <p className=\"font-semibold\">{update.author}</p>\n        <p className=\"text-slate-300\">{update.message}</p>\n      </li>\n    ))}\n  </ul>\n);"
+    }
+  ]
+}

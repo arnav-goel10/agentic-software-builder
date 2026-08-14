@@ -1,0 +1,10 @@
+{
+  "summary": "server/db.js skeleton with stubbed init/query regions",
+  "operations": [
+    {
+      "op": "upsert",
+      "path": "server/db.js",
+      "code": "import { PGlite } from \"@electric-sql/pglite\";\n\nlet dbPromise = null;\n\nasync function initDb() {\n  // BEGIN_FILL:db_init\n  // TODO: FILL_IN\n  // END_FILL:db_init\n}\n\nexport function getDb() {\n  // BEGIN_FILL:db_get\n  // TODO: FILL_IN\n  // END_FILL:db_get\n}\n\nexport async function listUpdates() {\n  // BEGIN_FILL:db_list\n  // TODO: FILL_IN\n  // END_FILL:db_list\n}\n\nexport async function addUpdate(author, message) {\n  // BEGIN_FILL:db_add\n  // TODO: FILL_IN\n  // END_FILL:db_add\n}\n"
+    }
+  ]
+}

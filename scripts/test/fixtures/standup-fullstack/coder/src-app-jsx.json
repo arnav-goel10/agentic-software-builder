@@ -1,0 +1,10 @@
+{
+  "summary": "Filled fetch-on-mount and post-update state/handler",
+  "path": "src/App.jsx",
+  "regions": [
+    {
+      "regionId": "app_state",
+      "body": "const [updates, setUpdates] = useState([]);\nconst [author, setAuthor] = useState(\"\");\nconst [message, setMessage] = useState(\"\");\n\nuseEffect(() => {\n  fetch(\"/api/updates\")\n    .then((res) => res.json())\n    .then((data) => setUpdates(data.updates ?? []))\n    .catch(() => setUpdates([]));\n}, []);\n\nconst handleAdd = async (event) => {\n  event.preventDefault();\n  if (!author.trim() || !message.trim()) return;\n  const response = await fetch(\"/api/updates\", {\n    method: \"POST\",\n    headers: { \"Content-Type\": \"application/json\" },\n    body: JSON.stringify({ author, message }),\n  });\n  const data = await response.json();\n  if (data.update) {\n    setUpdates((prev) => [data.update, ...prev]);\n    setMessage(\"\");\n  }\n};"
+    }
+  ]
+}

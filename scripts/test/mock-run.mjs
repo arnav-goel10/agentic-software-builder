@@ -17,6 +17,7 @@ import os from "node:os";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.join(__dirname, "fixtures", "todo-app");
 const FOLLOWUP_FIXTURES_DIR = path.join(__dirname, "fixtures", "todo-app-followup");
+const STANDUP_FULLSTACK_FIXTURES_DIR = path.join(__dirname, "fixtures", "standup-fullstack");
 
 if (!fs.existsSync(FIXTURES_DIR)) {
   console.error(`[mock-run] Fixtures directory not found: ${FIXTURES_DIR}`);
@@ -25,6 +26,11 @@ if (!fs.existsSync(FIXTURES_DIR)) {
 
 if (!fs.existsSync(FOLLOWUP_FIXTURES_DIR)) {
   console.error(`[mock-run] Follow-up fixtures directory not found: ${FOLLOWUP_FIXTURES_DIR}`);
+  process.exit(1);
+}
+
+if (!fs.existsSync(STANDUP_FULLSTACK_FIXTURES_DIR)) {
+  console.error(`[mock-run] Standup fullstack fixtures directory not found: ${STANDUP_FULLSTACK_FIXTURES_DIR}`);
   process.exit(1);
 }
 
@@ -436,10 +442,152 @@ async function runScenarioThree(scenarioOne) {
   }
 }
 
+// --- Scenario 4: express-fullstack stack profile ---------------------------
+//
+// Proves the second stack profile end-to-end: a brief that clearly needs a
+// real backend ("add updates via an API, list them for the team") drives the
+// spec fixture to declare stackProfile "express-fullstack" (plus a design
+// language other than the default, minimal-light, to prove that selection
+// too). The skeleton DAG fixture plans server/db.js, server/routes/updates.js,
+// server/app.js, src/App.jsx, and src/components/UpdatesList.jsx; none of
+// those exist yet in a first-message run, so every node goes through the
+// normal skeleton->scaffold->fill pipeline (same mechanism scenario 1
+// exercises for vite-spa) rather than the targeted-edit path.
+//
+// Gates mirror scenario 2 (validation + QA gates on, terminal build
+// skipped): this is the same "keyless, fast, but not gate-free" middle
+// ground — it proves the express-fullstack profile's *files* come out right
+// (package.json shape, engine-owned server/index.js, no React under
+// server/**) without paying for a real npm install + build + check:server
+// invocation in the CI-speed harness.
+async function runScenarioFour() {
+  console.log("\n[mock-run] Scenario 4: express-fullstack stack profile");
+
+  process.env.DEXTER_ENABLE_SKELETON_VALIDATION = "false";
+  process.env.DEXTER_ENABLE_FINAL_VALIDATION = "true";
+  process.env.DEXTER_ENABLE_QA = "true";
+  process.env.DEXTER_ENABLE_FIX_DAG = "true";
+  process.env.DEXTER_SKIP_TERMINAL_BUILD = "true";
+  process.env.DEXTER_MOCK_FIXTURES = STANDUP_FULLSTACK_FIXTURES_DIR;
+
+  const project = createProject({ name: "Mock Standup Tracker Run (express-fullstack)" });
+  const thread = createThread({ projectId: project.id, title: "Build a team standup tracker" });
+  const triggerMessage = createMessage({
+    threadId: thread.id,
+    role: "user",
+    content: "Team standup tracker: add updates via an API, list them for the team.",
+  });
+  const run = createRun({
+    projectId: project.id,
+    threadId: thread.id,
+    triggerMessageId: triggerMessage.id,
+    model: "mock/mock-model",
+  });
+
+  console.log(`[mock-run] Created project=${project.id} thread=${thread.id} run=${run.id}`);
+  console.log("[mock-run] Executing run against the mock provider (express-fullstack profile)...");
+
+  await executeRun({ runId: run.id });
+
+  const finishedRun = getRunById(run.id);
+  if (!finishedRun) {
+    console.error("[mock-run] Scenario 4 run vanished after execution (unexpected).");
+    failures += 1;
+    return;
+  }
+
+  console.log(`[mock-run] Scenario 4 run finished with status: ${finishedRun.status}`);
+
+  console.log("\n[mock-run] Scenario 4 assertions:");
+  check(
+    "scenario 4: run status is completed",
+    finishedRun.status === "completed",
+    `actual=${finishedRun.status} error=${finishedRun.error ?? "(none)"}`
+  );
+
+  if (finishedRun.status !== "completed") {
+    printRunSteps(run.id);
+    return;
+  }
+
+  const snapshot = getCurrentSnapshotForProject(project.id);
+  check("scenario 4: project has a current snapshot", Boolean(snapshot));
+  if (!snapshot) {
+    return;
+  }
+
+  /** @type {Array<{ name: string; code: string; language?: string }>} */
+  const files = JSON.parse(snapshot.files_json);
+  const fileNames = files.map((file) => file.name).sort();
+  console.log(`[mock-run] Scenario 4 snapshot has ${files.length} file(s): ${fileNames.join(", ")}`);
+  const byName = new Map(files.map((file) => [file.name, file]));
+
+  check("scenario 4: snapshot contains model-owned server/app.js", byName.has("server/app.js"));
+  check(
+    "scenario 4: snapshot contains model-owned server/routes/updates.js",
+    byName.has("server/routes/updates.js")
+  );
+  check("scenario 4: snapshot contains model-owned server/db.js", byName.has("server/db.js"));
+  check(
+    "scenario 4: snapshot contains the engine-owned server/index.js bootstrap",
+    byName.has("server/index.js")
+  );
+
+  for (const required of ["index.html", "src/main.jsx", "src/App.jsx", "src/index.css", "src/components/UpdatesList.jsx"]) {
+    check(`scenario 4: frontend file ${required} is present`, byName.has(required));
+  }
+
+  const packageJsonFile = byName.get("package.json");
+  check("scenario 4: package.json is present", Boolean(packageJsonFile));
+  if (packageJsonFile) {
+    let packageJson = null;
+    try {
+      packageJson = JSON.parse(packageJsonFile.code);
+    } catch (error) {
+      check("scenario 4: package.json is valid JSON", false, String(error));
+    }
+    if (packageJson) {
+      check(
+        "scenario 4: package.json declares an express dependency",
+        Boolean(packageJson.dependencies?.express)
+      );
+      check(
+        "scenario 4: package.json declares a check:server script",
+        typeof packageJson.scripts?.["check:server"] === "string" && packageJson.scripts["check:server"].length > 0
+      );
+      check(
+        "scenario 4: package.json declares an @electric-sql/pglite dependency",
+        Boolean(packageJson.dependencies?.["@electric-sql/pglite"])
+      );
+    }
+  }
+
+  const serverFiles = files.filter((file) => file.name.startsWith("server/"));
+  check("scenario 4: at least one server/** file exists", serverFiles.length > 0);
+  const reactImportInServerFiles = serverFiles.filter((file) =>
+    /from\s*["'`]react(?:-dom)?(?:\/[^"'`]*)?["'`]/.test(file.code)
+  );
+  check(
+    "scenario 4: no server/** file imports react",
+    reactImportInServerFiles.length === 0,
+    reactImportInServerFiles.map((file) => file.name).join(", ")
+  );
+
+  const appJsFile = byName.get("server/app.js");
+  if (appJsFile) {
+    check(
+      "scenario 4: server/app.js exports the Express app",
+      /export\s+const\s+app\b/.test(appJsFile.code),
+      appJsFile.code
+    );
+  }
+}
+
 try {
   const scenarioOne = await main();
   await runScenarioTwo();
   await runScenarioThree(scenarioOne);
+  await runScenarioFour();
 } catch (error) {
   console.error("[mock-run] Harness crashed:", error);
   process.exitCode = 1;

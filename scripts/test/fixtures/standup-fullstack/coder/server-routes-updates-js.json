@@ -1,0 +1,14 @@
+{
+  "summary": "Filled GET/POST /api/updates handlers",
+  "path": "server/routes/updates.js",
+  "regions": [
+    {
+      "regionId": "route_list",
+      "body": "try {\n  const updates = await listUpdates();\n  res.json({ updates });\n} catch (error) {\n  res.status(500).json({ error: \"Failed to load updates\" });\n}"
+    },
+    {
+      "regionId": "route_add",
+      "body": "const { author, message } = req.body ?? {};\nif (!author || !message) {\n  res.status(400).json({ error: \"author and message are required\" });\n  return;\n}\ntry {\n  const update = await addUpdate(author, message);\n  res.status(201).json({ update });\n} catch (error) {\n  res.status(500).json({ error: \"Failed to add update\" });\n}"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "summary": "App skeleton with a stubbed state/effects region",
+  "operations": [
+    {
+      "op": "upsert",
+      "path": "src/App.jsx",
+      "code": "import React, { useState, useEffect } from \"react\";\nimport UpdatesList from \"./components/UpdatesList\";\n\nexport default function App() {\n  // BEGIN_FILL:app_state\n  // TODO: FILL_IN\n  // END_FILL:app_state\n\n  return (\n    <main className=\"min-h-screen bg-slate-950 text-slate-100 p-8\">\n      <div className=\"mx-auto max-w-xl\">\n        <h1 className=\"text-3xl font-semibold mb-6\">Team Standup Tracker</h1>\n        <form onSubmit={handleAdd} className=\"mb-6 space-y-2\">\n          <input\n            value={author}\n            onChange={(event) => setAuthor(event.target.value)}\n            placeholder=\"Your name\"\n            className=\"w-full rounded px-3 py-2 text-slate-900\"\n          />\n          <textarea\n            value={message}\n            onChange={(event) => setMessage(event.target.value)}\n            placeholder=\"Today's update\"\n            className=\"w-full rounded px-3 py-2 text-slate-900\"\n          />\n          <button type=\"submit\" className=\"rounded bg-cyan-500 px-4 py-2\">\n            Post update\n          </button>\n        </form>\n        <UpdatesList updates={updates} />\n      </div>\n    </main>\n  );\n}\n"
+    }
+  ]
+}

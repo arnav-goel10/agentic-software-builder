@@ -1,0 +1,3 @@
+{
+  "summary": "Built a team standup tracker: an Express API backed by server-side PGlite persists posted updates, and the frontend posts to and lists from that API."
+}

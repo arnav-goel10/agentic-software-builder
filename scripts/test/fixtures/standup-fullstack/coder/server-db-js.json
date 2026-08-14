@@ -1,0 +1,22 @@
+{
+  "summary": "Filled server-side PGlite persistence for updates",
+  "path": "server/db.js",
+  "regions": [
+    {
+      "regionId": "db_init",
+      "body": "const instance = new PGlite(\"./data/standup-db\");\nawait instance.waitReady;\nawait instance.exec(`\n  CREATE TABLE IF NOT EXISTS updates (\n    id SERIAL PRIMARY KEY,\n    author TEXT NOT NULL,\n    message TEXT NOT NULL,\n    created_at TIMESTAMP NOT NULL DEFAULT NOW()\n  );\n`);\nreturn instance;"
+    },
+    {
+      "regionId": "db_get",
+      "body": "if (!dbPromise) {\n  dbPromise = initDb();\n}\nreturn dbPromise;"
+    },
+    {
+      "regionId": "db_list",
+      "body": "const db = await getDb();\nconst result = await db.query(\n  \"SELECT id, author, message, created_at FROM updates ORDER BY created_at DESC\"\n);\nconst rows = Array.isArray(result) ? result : Array.isArray(result?.rows) ? result.rows : [];\nreturn rows;"
+    },
+    {
+      "regionId": "db_add",
+      "body": "const db = await getDb();\nconst result = await db.query(\n  \"INSERT INTO updates (author, message) VALUES ($1, $2) RETURNING id, author, message, created_at\",\n  [author, message]\n);\nconst rows = Array.isArray(result) ? result : Array.isArray(result?.rows) ? result.rows : [];\nreturn rows[0];"
+    }
+  ]
+}

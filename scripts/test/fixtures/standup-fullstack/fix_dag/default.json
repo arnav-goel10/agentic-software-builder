@@ -1,0 +1,13 @@
+{
+  "summary": "No actionable blockers were corroborated by deterministic evidence; no-op remediation.",
+  "tasks": [
+    {
+      "id": "fix-noop",
+      "title": "No-op verification",
+      "instructions": "No changes required; reported blockers were not corroborated by validation or runtime diagnostics.",
+      "dependsOn": [],
+      "taskWriteSet": ["package.json"],
+      "issues": ["No actionable blocker detected"]
+    }
+  ]
+}

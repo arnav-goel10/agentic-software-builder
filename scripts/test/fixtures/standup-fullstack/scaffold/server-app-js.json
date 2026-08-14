@@ -1,0 +1,10 @@
+{
+  "summary": "server/app.js skeleton with a stubbed wiring region",
+  "operations": [
+    {
+      "op": "upsert",
+      "path": "server/app.js",
+      "code": "import express from \"express\";\nimport { updatesRouter } from \"./routes/updates.js\";\n\nexport const app = express();\n\n// BEGIN_FILL:app_setup\n// TODO: FILL_IN\n// END_FILL:app_setup\n"
+    }
+  ]
+}

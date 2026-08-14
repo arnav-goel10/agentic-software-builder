@@ -1,0 +1,10 @@
+{
+  "summary": "UpdatesList skeleton with a stubbed render region",
+  "operations": [
+    {
+      "op": "upsert",
+      "path": "src/components/UpdatesList.jsx",
+      "code": "import React from \"react\";\n\nexport default function UpdatesList({ updates }) {\n  // BEGIN_FILL:updates_render\n  // TODO: FILL_IN\n  // END_FILL:updates_render\n}\n"
+    }
+  ]
+}

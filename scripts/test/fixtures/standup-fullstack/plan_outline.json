@@ -1,0 +1,19 @@
+{
+  "summary": "Single pass: build the Express API for standup updates (server-side PGlite persistence) and the frontend that posts to and lists from it.",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Build the standup tracker API and frontend",
+      "instructions": "Create server/db.js (PGlite-backed persistence for updates), server/routes/updates.js (GET/POST /api/updates), server/app.js (Express app wiring the router), src/App.jsx (posts an update and lists them via fetch), and src/components/UpdatesList.jsx (renders the list).",
+      "objectiveType": "direct_fix",
+      "dependsOn": [],
+      "taskWriteSet": [
+        "server/db.js",
+        "server/routes/updates.js",
+        "server/app.js",
+        "src/App.jsx",
+        "src/components/UpdatesList.jsx"
+      ]
+    }
+  ]
+}

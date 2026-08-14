@@ -1,0 +1,220 @@
+{
+  "summary": "Five-file skeleton: server/db.js persists updates via server-side PGlite, server/routes/updates.js exposes GET/POST /api/updates, server/app.js wires the router into an Express app, src/App.jsx owns the post form and fetches the list, src/components/UpdatesList.jsx renders it.",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Build the standup tracker API and frontend",
+      "instructions": "Create server/db.js, server/routes/updates.js, server/app.js, src/App.jsx, and src/components/UpdatesList.jsx.",
+      "objectiveType": "direct_fix",
+      "dependsOn": [],
+      "taskWriteSet": [
+        "server/db.js",
+        "server/routes/updates.js",
+        "server/app.js",
+        "src/App.jsx",
+        "src/components/UpdatesList.jsx"
+      ]
+    }
+  ],
+  "fileContracts": [
+    {
+      "path": "server/db.js",
+      "purpose": "Server-side PGlite persistence for standup updates.",
+      "imports": [
+        { "source": "@electric-sql/pglite", "names": ["PGlite"] }
+      ],
+      "exports": [
+        {
+          "name": "getDb",
+          "kind": "function",
+          "signature": "() => Promise<PGlite>",
+          "description": "Returns the shared, single-flight-initialized PGlite instance, creating the updates table on first call."
+        },
+        {
+          "name": "listUpdates",
+          "kind": "function",
+          "signature": "() => Promise<Array<{id:number,author:string,message:string,created_at:string}>>",
+          "description": "Returns all updates, newest first."
+        },
+        {
+          "name": "addUpdate",
+          "kind": "function",
+          "signature": "(author: string, message: string) => Promise<{id:number,author:string,message:string,created_at:string}>",
+          "description": "Inserts a new update and returns the inserted row."
+        }
+      ]
+    },
+    {
+      "path": "server/routes/updates.js",
+      "purpose": "Express router exposing GET/POST /api/updates, backed by server/db.js.",
+      "imports": [
+        { "source": "express", "names": ["default"] },
+        { "source": "../db.js", "names": ["listUpdates", "addUpdate"] }
+      ],
+      "exports": [
+        {
+          "name": "updatesRouter",
+          "kind": "const",
+          "signature": "express.Router",
+          "description": "Router mounted at /api/updates by server/app.js; GET lists updates, POST creates one."
+        }
+      ]
+    },
+    {
+      "path": "server/app.js",
+      "purpose": "Express application: mounts the updates API and JSON body parsing.",
+      "imports": [
+        { "source": "express", "names": ["default"] },
+        { "source": "./routes/updates.js", "names": ["updatesRouter"] }
+      ],
+      "exports": [
+        {
+          "name": "app",
+          "kind": "const",
+          "signature": "express.Express",
+          "description": "The configured Express application that server/index.js imports and listens on."
+        }
+      ]
+    },
+    {
+      "path": "src/components/UpdatesList.jsx",
+      "purpose": "Presentational list of posted standup updates.",
+      "imports": [
+        { "source": "react", "names": ["default"] }
+      ],
+      "exports": [
+        {
+          "name": "default",
+          "kind": "default",
+          "signature": "({ updates }) => JSX.Element",
+          "description": "Renders each update's author and message, newest first."
+        }
+      ]
+    },
+    {
+      "path": "src/App.jsx",
+      "purpose": "Entry component: posts a new update via the API and lists existing ones.",
+      "imports": [
+        { "source": "react", "names": ["default", "useState", "useEffect"] },
+        { "source": "./components/UpdatesList", "names": ["default"] }
+      ],
+      "exports": [
+        {
+          "name": "default",
+          "kind": "default",
+          "signature": "() => JSX.Element",
+          "description": "App root component: fetches /api/updates on mount, posts new updates, renders UpdatesList."
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "path": "server/db.js",
+      "purpose": "Server-side PGlite persistence for standup updates.",
+      "imports": [
+        { "source": "@electric-sql/pglite", "names": ["PGlite"] }
+      ],
+      "exports": [
+        {
+          "name": "getDb",
+          "kind": "function",
+          "signature": "() => Promise<PGlite>",
+          "description": "Returns the shared, single-flight-initialized PGlite instance, creating the updates table on first call."
+        },
+        {
+          "name": "listUpdates",
+          "kind": "function",
+          "signature": "() => Promise<Array<{id:number,author:string,message:string,created_at:string}>>",
+          "description": "Returns all updates, newest first."
+        },
+        {
+          "name": "addUpdate",
+          "kind": "function",
+          "signature": "(author: string, message: string) => Promise<{id:number,author:string,message:string,created_at:string}>",
+          "description": "Inserts a new update and returns the inserted row."
+        }
+      ],
+      "dbQueries": [
+        { "operation": "CREATE", "table": "updates", "description": "Creates the updates table if it does not exist." },
+        { "operation": "SELECT", "table": "updates", "description": "Lists all updates, newest first." },
+        { "operation": "INSERT", "table": "updates", "description": "Inserts a new update row." }
+      ],
+      "externalLibraries": ["@electric-sql/pglite"],
+      "dependsOnPaths": []
+    },
+    {
+      "path": "server/routes/updates.js",
+      "purpose": "Express router exposing GET/POST /api/updates, backed by server/db.js.",
+      "imports": [
+        { "source": "express", "names": ["default"] },
+        { "source": "../db.js", "names": ["listUpdates", "addUpdate"] }
+      ],
+      "exports": [
+        {
+          "name": "updatesRouter",
+          "kind": "const",
+          "signature": "express.Router",
+          "description": "Router mounted at /api/updates by server/app.js; GET lists updates, POST creates one."
+        }
+      ],
+      "routeOwnership": "route:server/routes/updates.js",
+      "externalLibraries": ["express"],
+      "dependsOnPaths": ["server/db.js"]
+    },
+    {
+      "path": "server/app.js",
+      "purpose": "Express application: mounts the updates API and JSON body parsing.",
+      "imports": [
+        { "source": "express", "names": ["default"] },
+        { "source": "./routes/updates.js", "names": ["updatesRouter"] }
+      ],
+      "exports": [
+        {
+          "name": "app",
+          "kind": "const",
+          "signature": "express.Express",
+          "description": "The configured Express application that server/index.js imports and listens on."
+        }
+      ],
+      "externalLibraries": ["express"],
+      "dependsOnPaths": ["server/routes/updates.js"]
+    },
+    {
+      "path": "src/components/UpdatesList.jsx",
+      "purpose": "Presentational list of posted standup updates.",
+      "imports": [
+        { "source": "react", "names": ["default"] }
+      ],
+      "exports": [
+        {
+          "name": "default",
+          "kind": "default",
+          "signature": "({ updates }) => JSX.Element",
+          "description": "Renders each update's author and message, newest first."
+        }
+      ],
+      "externalLibraries": ["react"],
+      "dependsOnPaths": []
+    },
+    {
+      "path": "src/App.jsx",
+      "purpose": "Entry component: posts a new update via the API and lists existing ones.",
+      "imports": [
+        { "source": "react", "names": ["default", "useState", "useEffect"] },
+        { "source": "./components/UpdatesList", "names": ["default"] }
+      ],
+      "exports": [
+        {
+          "name": "default",
+          "kind": "default",
+          "signature": "() => JSX.Element",
+          "description": "App root component: fetches /api/updates on mount, posts new updates, renders UpdatesList."
+        }
+      ],
+      "routeOwnership": "route:src/App.jsx",
+      "externalLibraries": ["react"],
+      "dependsOnPaths": ["src/components/UpdatesList.jsx"]
+    }
+  ]
+}

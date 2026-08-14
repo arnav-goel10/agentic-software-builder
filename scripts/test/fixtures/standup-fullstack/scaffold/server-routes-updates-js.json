@@ -1,0 +1,10 @@
+{
+  "summary": "server/routes/updates.js skeleton with stubbed handler regions",
+  "operations": [
+    {
+      "op": "upsert",
+      "path": "server/routes/updates.js",
+      "code": "import express from \"express\";\nimport { listUpdates, addUpdate } from \"../db.js\";\n\nexport const updatesRouter = express.Router();\n\nupdatesRouter.get(\"/\", async (req, res) => {\n  // BEGIN_FILL:route_list\n  // TODO: FILL_IN\n  // END_FILL:route_list\n});\n\nupdatesRouter.post(\"/\", async (req, res) => {\n  // BEGIN_FILL:route_add\n  // TODO: FILL_IN\n  // END_FILL:route_add\n});\n"
+    }
+  ]
+}

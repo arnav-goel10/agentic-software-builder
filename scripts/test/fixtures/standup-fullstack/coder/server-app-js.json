@@ -1,0 +1,10 @@
+{
+  "summary": "Filled Express app wiring",
+  "path": "server/app.js",
+  "regions": [
+    {
+      "regionId": "app_setup",
+      "body": "app.use(express.json());\napp.use(\"/api/updates\", updatesRouter);\n\napp.get(\"/api/health\", (req, res) => {\n  res.json({ ok: true });\n});"
+    }
+  ]
+}
