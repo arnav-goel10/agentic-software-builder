@@ -1469,7 +1469,20 @@ function validatePglitePlaceholderStyle(files: GeneratedFile[]): ValidationIssue
       continue;
     }
 
-    const queryLiteralPattern = /\.query\s*\(\s*([`'"])([\s\S]*?)\1\s*,\s*\[/g;
+    // The content group must stop at the FIRST unescaped occurrence of its
+    // own opening delimiter (`(?!\1)` guards every character), not just the
+    // nearest occurrence of that quote character anywhere later in the
+    // file. A plain `[\s\S]*?` non-greedy group has no such guard: when one
+    // `.query(sql)` call has no `[...]` params (so the pattern can't match
+    // right after its own closing quote), the engine backtracks by treating
+    // that quote as ordinary content and extends across unrelated code —
+    // including a LATER, unrelated `.query(sql, [...])` call — swallowing
+    // everything in between (function bodies, other calls) as "sql". Any
+    // `?` in that swallowed code (a ternary or `?.` optional chain, both
+    // idiomatic in normalized PGlite result handling) then false-positives
+    // this check, and the paired deterministic fixer below corrupts working
+    // JS by rewriting those `?`/`?.` into `$1`/`$1.`.
+    const queryLiteralPattern = /\.query\s*\(\s*(["'`])((?:\\.|(?!\1)[\s\S])*)\1\s*,\s*\[/g;
     let queryMatch: RegExpExecArray | null;
     while ((queryMatch = queryLiteralPattern.exec(file.code)) !== null) {
       const sql = queryMatch[2] ?? "";
@@ -3927,8 +3940,13 @@ function convertSqlQuestionPlaceholders(code: string): string {
   // Mechanical rewrite of SQLite-style `?` placeholders to PostgreSQL `$n`
   // inside `.query(<literal>, [...])` calls, mirroring exactly the sites
   // validatePglitePlaceholderStyle flags. `?` inside single-quoted SQL
-  // string literals is left untouched.
-  const queryLiteralPattern = /(\.query\s*\(\s*)([`'"])([\s\S]*?)\2(\s*,\s*\[)/g;
+  // string literals is left untouched. The content group is bounded the
+  // same way as the validator's pattern (see the comment there): it must
+  // stop at the first unescaped occurrence of its own delimiter rather than
+  // being able to backtrack across an unrelated later `.query()` call, or
+  // this rewrite corrupts any `?`/`?.` (ternaries, optional chaining) in
+  // the JS code it swallows along the way.
+  const queryLiteralPattern = /(\.query\s*\(\s*)(["'`])((?:\\.|(?!\2)[\s\S])*)\2(\s*,\s*\[)/g;
   return code.replace(queryLiteralPattern, (whole, pre: string, quote: string, sql: string, post: string) => {
     if (!/\b(select|insert|update|delete|create|alter|drop)\b/i.test(sql) || !/\?/.test(sql)) {
       return whole;
