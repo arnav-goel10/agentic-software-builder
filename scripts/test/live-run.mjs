@@ -55,13 +55,13 @@ function printRunSteps(runId) {
 }
 
 const BRIEF =
-  "Build a notes app with folders: create and delete folders, add notes inside a folder, pin important notes to the top, and search across every note with live results.";
+  "Build a team bookmarks manager: a server API to add, list, and delete shared bookmarks kept in a server-side database, and a frontend that shows the team's bookmarks with add and delete controls.";
 
 async function main() {
   console.log(`[live-run] Provider: ${process.env.DEXTER_MODEL_PROVIDER}`);
   console.log(`[live-run] Scratch DB: ${dbPath}`);
-  const project = createProject({ name: "Live Notes Run" });
-  const thread = createThread({ projectId: project.id, title: "Build a notes app" });
+  const project = createProject({ name: "Live Fullstack Run" });
+  const thread = createThread({ projectId: project.id, title: "Build a bookmarks manager" });
   const triggerMessage = createMessage({ threadId: thread.id, role: "user", content: BRIEF });
   const run = createRun({
     projectId: project.id,
@@ -85,7 +85,7 @@ async function main() {
   const files = snapshot ? JSON.parse(snapshot.files_json) : [];
   const names = files.map((f) => f.name ?? f.path);
   console.log(`[live-run] Snapshot has ${files.length} files: ${names.join(", ")}`);
-  for (const wanted of ["index.html", "src/main.jsx", "src/index.css", "package.json", "src/App.jsx"]) {
+  for (const wanted of ["index.html", "src/main.jsx", "src/index.css", "package.json", "src/App.jsx", "server/app.js", "server/index.js"]) {
     check(`snapshot includes ${wanted}`, names.includes(wanted));
   }
   const unfilled = [];

@@ -1925,11 +1925,18 @@ function validateReactQueryProviderSemantics(files: GeneratedFile[]): Validation
   const entrypointCandidates = codeFiles.filter((file) => isRuntimeEntrypoint(normalizePath(file.name)));
 
   if (providerFiles.length === 0) {
+    // Attribute the issue to the editable app root, never the system-owned
+    // main.jsx, or repair passes will target a file they are forbidden to
+    // touch and can never converge.
+    const appRootFile = entrypointCandidates.find((file) => {
+      const normalized = normalizePath(file.name);
+      return SRC_APP_FILE_PATTERN.test(normalized) || ROOT_APP_FILE_PATTERN.test(normalized);
+    });
     issues.push({
       code: "react_query.missing_provider",
-      file: entrypointCandidates[0]?.name,
+      file: appRootFile?.name ?? entrypointCandidates[0]?.name,
       message:
-        "TanStack Query hooks are used without QueryClientProvider. Wrap app root with QueryClientProvider and a shared QueryClient instance.",
+        "TanStack Query hooks are used without QueryClientProvider. Wrap the root JSX in src/App.jsx with QueryClientProvider and a shared QueryClient instance (src/main.jsx is system-owned and cannot be edited).",
     });
     return issues;
   }
@@ -1939,7 +1946,7 @@ function validateReactQueryProviderSemantics(files: GeneratedFile[]): Validation
       code: "react_query.provider_not_in_entrypoint",
       file: providerFiles[0]?.name,
       message:
-        "QueryClientProvider is defined outside runtime entrypoint. Put the top-level QueryClientProvider in src/main.* or index.* so all hook consumers render inside it.",
+        "QueryClientProvider is defined outside the app root. Put the top-level QueryClientProvider in src/App.jsx so all hook consumers render inside it (src/main.jsx is system-owned and cannot be edited).",
     });
   }
 

@@ -30,7 +30,8 @@ export const STACK_PROFILE_SPEC_GUIDANCE = `Stack profile selection:
 Choose exactly one "stackProfile" for this project, plus a one/two-sentence "stackProfileReasoning".
 - "vite-spa" (default — prefer this unless the brief clearly needs more): a browser-only single-page app. Any persistence needed runs client-side via @electric-sql/pglite in the browser.
 - "express-fullstack": choose ONLY when the brief genuinely needs a real backend the browser cannot provide alone — server-authoritative APIs, auth flows with server-held sessions/secrets, persistence that must be shared/consistent across multiple clients or devices, webhooks/callbacks from third parties, or scheduled/background jobs. This adds a Node/Express API (server/app.js) beside the Vite frontend, with PGlite running server-side instead of in the browser.
-Do not choose "express-fullstack" just because the app has "data" or "state" — that is what vite-spa + client-side PGlite is for. Reserve it for requests that name a server-side concern outright.`;
+Do not choose "express-fullstack" just because the app has "data" or "state" — that is what vite-spa + client-side PGlite is for. Reserve it for requests that name a server-side concern outright.
+NON-NEGOTIABLE: if the request explicitly asks for a server, an API, a backend, or data shared across a team/users/devices, stackProfile MUST be "express-fullstack". Never satisfy an explicitly requested server with client-side storage, and never describe client-side persistence as "simulating" a server.`;
 
 // ─── Engine-owned server bootstrap (express-fullstack only) ─────────────
 //
