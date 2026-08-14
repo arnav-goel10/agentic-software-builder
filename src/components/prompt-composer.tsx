@@ -1,44 +1,83 @@
 "use client";
 
 import * as React from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Mic, Paperclip, Sparkles, ArrowUp, Layers } from "lucide-react";
+import { motion } from "framer-motion";
+import { ArrowUp, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const suggestions = [
-    "Build a fintech app with crypto portfolio tracking",
-    "Create an AI-powered writing assistant",
-    "Design a marketplace like Airbnb",
-    "Build a team collaboration tool",
+export interface ExampleBrief {
+    label: string;
+    prompt: string;
+}
+
+export const EXAMPLE_BRIEFS: ExampleBrief[] = [
+    {
+        label: "Counter app",
+        prompt:
+            "A counter app with increment, decrement, and reset buttons, plus a running history of the last 5 values.",
+    },
+    {
+        label: "Todo list",
+        prompt:
+            "A todo list where I can add tasks, mark them complete, and delete them, with a live count of tasks remaining.",
+    },
+    {
+        label: "Habit tracker",
+        prompt:
+            "A daily habit tracker with a list of habits I can check off each day and a weekly streak view for each one.",
+    },
+    {
+        label: "Notes app",
+        prompt:
+            "A simple notes app where I can create, edit, and delete short text notes, listed in a sidebar sorted by last edited.",
+    },
+    {
+        label: "Quiz game",
+        prompt:
+            "A multiple-choice quiz game with five questions, a running score counter, and a results screen at the end.",
+    },
 ];
 
 interface PromptComposerProps {
     onSubmit?: (prompt: string) => Promise<void> | void;
     size?: "default" | "large";
+    value?: string;
+    onValueChange?: (value: string) => void;
 }
 
-export function PromptComposer({ onSubmit, size = "default" }: PromptComposerProps) {
-    const [prompt, setPrompt] = React.useState("");
+export function PromptComposer({ onSubmit, size = "default", value, onValueChange }: PromptComposerProps) {
+    const [internalPrompt, setInternalPrompt] = React.useState("");
     const [isFocused, setIsFocused] = React.useState(false);
-    const [showSuggestions, setShowSuggestions] = React.useState(false);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
-    const applySuggestion = React.useCallback((value: string) => {
-        setPrompt(value);
-        setShowSuggestions(false);
-        setIsFocused(true);
+    const isControlled = value !== undefined;
+    const prompt = isControlled ? value : internalPrompt;
 
-        requestAnimationFrame(() => {
-            const element = textareaRef.current;
-            if (!element) return;
-            element.focus();
-            const cursor = value.length;
-            element.setSelectionRange(cursor, cursor);
-        });
-    }, []);
+    const setPrompt = React.useCallback(
+        (next: string) => {
+            if (!isControlled) {
+                setInternalPrompt(next);
+            }
+            onValueChange?.(next);
+        },
+        [isControlled, onValueChange]
+    );
 
-    const handleSubmit = async () => {
+    const applyExample = React.useCallback(
+        (text: string) => {
+            setPrompt(text);
+            requestAnimationFrame(() => {
+                const element = textareaRef.current;
+                if (!element) return;
+                element.focus();
+                element.setSelectionRange(text.length, text.length);
+            });
+        },
+        [setPrompt]
+    );
+
+    const handleSubmit = React.useCallback(async () => {
         if (prompt.trim() && !isSubmitting) {
             setIsSubmitting(true);
             try {
@@ -47,10 +86,10 @@ export function PromptComposer({ onSubmit, size = "default" }: PromptComposerPro
                 setIsSubmitting(false);
             }
         }
-    };
+    }, [isSubmitting, onSubmit, prompt]);
 
     const handleKeyDown = async (e: React.KeyboardEvent) => {
-        if (e.key === "Enter" && !e.shiftKey) {
+        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
             await handleSubmit();
         }
@@ -59,140 +98,83 @@ export function PromptComposer({ onSubmit, size = "default" }: PromptComposerPro
     const isLarge = size === "large";
 
     return (
-        <div className="w-full max-w-3xl mx-auto">
-            {/* Main Composer */}
-            <motion.div
+        <div className="w-full max-w-2xl mx-auto">
+            <div
                 className={cn(
-                    "relative rounded-2xl overflow-hidden",
-                    "transition-all duration-300",
-                    isFocused ? "shadow-2xl" : "shadow-lg"
+                    "relative rounded-[16px] bg-white border transition-all duration-200 ease-out",
+                    isFocused ? "border-[#0071e3]/40 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_4px_rgba(0,113,227,0.08)]" : "border-black/[0.08] shadow-sm"
                 )}
-                animate={{
-                    boxShadow: isFocused
-                        ? "0 0 60px rgba(139, 92, 246, 0.15), 0 0 100px rgba(34, 211, 238, 0.05)"
-                        : "0 8px 32px rgba(0, 0, 0, 0.4)",
-                }}
             >
-                {/* Gradient border */}
-                <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-[#6366F1] via-[#8B5CF6] to-[#22D3EE] opacity-20" />
-                <div className="absolute inset-[1px] rounded-2xl bg-[#111218]" />
-
-                {/* Inner content */}
-                <div className="relative">
-                    {/* Textarea */}
-                    <div
+                <div className={cn(isLarge ? "px-5 pt-5 pb-3" : "px-4 pt-4 pb-2")}>
+                    <label htmlFor="dexter-composer" className="sr-only">
+                        Describe the app you want Dexter to build
+                    </label>
+                    <textarea
+                        id="dexter-composer"
+                        ref={textareaRef}
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                        onFocus={() => setIsFocused(true)}
+                        onBlur={() => setIsFocused(false)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Describe the app you want Dexter to build..."
                         className={cn(
-                            isLarge ? "px-6 pt-5 pb-4" : "px-5 pt-4 pb-3"
+                            "w-full bg-transparent border-none outline-none resize-none",
+                            "text-[#1d1d1f] placeholder:text-[#a1a1a6]",
+                            "leading-relaxed",
+                            "focus:outline-none focus:ring-0",
+                            isLarge ? "min-h-[88px] text-[17px]" : "min-h-[64px] text-[15px]"
+                        )}
+                        rows={isLarge ? 3 : 2}
+                    />
+                </div>
+
+                <div className="flex items-center justify-between px-4 py-3 border-t border-black/[0.06]">
+                    <span className="text-[12px] text-[#a1a1a6] font-mono hidden sm:inline">⌘ + Enter to build</span>
+                    <motion.button
+                        onClick={() => void handleSubmit()}
+                        disabled={!prompt.trim() || isSubmitting}
+                        whileTap={{ scale: prompt.trim() ? 0.98 : 1 }}
+                        transition={{ duration: 0.15 }}
+                        className={cn(
+                            "ml-auto flex items-center gap-2 px-5 py-2.5 rounded-[10px] font-medium text-[14px]",
+                            "bg-[#0071e3] text-white shadow-sm",
+                            "disabled:opacity-40 disabled:cursor-not-allowed",
+                            "hover:bg-[#0077ed] active:bg-[#0068d1]",
+                            "transition-colors duration-150"
                         )}
                     >
-                        <textarea
-                            ref={textareaRef}
-                            value={prompt}
-                            onChange={(e) => {
-                                setPrompt(e.target.value);
-                                setShowSuggestions(e.target.value.length === 0);
-                            }}
-                            onFocus={() => {
-                                setIsFocused(true);
-                                setShowSuggestions(prompt.length === 0);
-                            }}
-                            onBlur={() => {
-                                setIsFocused(false);
-                                setTimeout(() => setShowSuggestions(false), 200);
-                            }}
-                            onKeyDown={handleKeyDown}
-                            placeholder="Describe the product you want Dexter to ship..."
-                            className={cn(
-                                "w-full bg-transparent border-none outline-none resize-none",
-                                "text-[#E6E6EB] placeholder:text-[#4B5563]",
-                                "leading-relaxed",
-                                "focus:outline-none focus:ring-0 focus:shadow-none",
-                                "focus-visible:!outline-none focus-visible:!ring-0 focus-visible:!shadow-none",
-                                isLarge ? "min-h-[92px] text-lg" : "min-h-[68px] text-base"
-                            )}
-                            rows={isLarge ? 3 : 2}
-                        />
-                    </div>
-
-                    {/* Bottom toolbar */}
-                    <div className="flex items-center justify-between px-4 py-3 border-t border-white/6">
-                        {/* Left actions */}
-                        <div className="flex items-center gap-2">
-                            <motion.button
-                                className="p-2 rounded-lg text-[#6B7280] hover:text-[#E6E6EB] hover:bg-white/5 transition-colors"
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                            >
-                                <Paperclip className="w-4 h-4" />
-                            </motion.button>
-                            <motion.button
-                                className="p-2 rounded-lg text-[#6B7280] hover:text-[#E6E6EB] hover:bg-white/5 transition-colors"
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                            >
-                                <Mic className="w-4 h-4" />
-                            </motion.button>
-                            <motion.button
-                                className="p-2 rounded-lg text-[#6B7280] hover:text-[#E6E6EB] hover:bg-white/5 transition-colors"
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                            >
-                                <Layers className="w-4 h-4" />
-                            </motion.button>
-                        </div>
-
-                        {/* Generate button */}
-                        <motion.button
-                            onClick={handleSubmit}
-                            disabled={!prompt.trim() || isSubmitting}
-                            className={cn(
-                                "flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm",
-                                "bg-gradient-to-r from-[#6366F1] via-[#8B5CF6] to-[#A855F7]",
-                                "text-white shadow-lg shadow-purple-500/25",
-                                "disabled:opacity-50 disabled:cursor-not-allowed",
-                                "hover:shadow-purple-500/40 hover:brightness-110",
-                                "transition-all duration-200"
-                            )}
-                            whileHover={{ scale: prompt.trim() ? 1.02 : 1 }}
-                            whileTap={{ scale: prompt.trim() ? 0.98 : 1 }}
-                        >
-                            <Sparkles className="w-4 h-4" />
-                            {isSubmitting ? "Starting..." : "Generate"}
-                            <ArrowUp className="w-4 h-4 ml-1" />
-                        </motion.button>
-                    </div>
+                        {isSubmitting ? (
+                            <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Building...
+                            </>
+                        ) : (
+                            <>
+                                Build
+                                <ArrowUp className="w-4 h-4" />
+                            </>
+                        )}
+                    </motion.button>
                 </div>
-            </motion.div>
+            </div>
 
-            {/* Suggestions dropdown */}
-            <AnimatePresence>
-                {showSuggestions && isFocused && (
-                    <motion.div
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        transition={{ duration: 0.15 }}
-                        className="mt-2 p-2 rounded-xl bg-[#111218] border border-white/8 shadow-xl"
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                {EXAMPLE_BRIEFS.map((example) => (
+                    <button
+                        key={example.label}
+                        type="button"
+                        onClick={() => applyExample(example.prompt)}
+                        className={cn(
+                            "px-3 py-1.5 rounded-full text-[13px] font-medium",
+                            "bg-white border border-black/[0.08] text-[#6e6e73] shadow-sm",
+                            "hover:text-[#1d1d1f] hover:border-black/[0.14] transition-colors duration-150"
+                        )}
                     >
-                        <p className="px-3 py-2 text-xs text-[#6B7280] uppercase tracking-wider">Suggestions</p>
-                        {suggestions.map((suggestion, i) => (
-                            <motion.button
-                                key={i}
-                                type="button"
-                                onMouseDown={(event) => {
-                                    event.preventDefault();
-                                    applySuggestion(suggestion);
-                                }}
-                                onClick={() => applySuggestion(suggestion)}
-                                className="w-full text-left px-3 py-2 rounded-lg text-sm text-[#9CA3AF] hover:text-[#E6E6EB] hover:bg-white/5 transition-colors"
-                                whileHover={{ x: 4 }}
-                            >
-                                {suggestion}
-                            </motion.button>
-                        ))}
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                        {example.label}
+                    </button>
+                ))}
+            </div>
         </div>
     );
 }

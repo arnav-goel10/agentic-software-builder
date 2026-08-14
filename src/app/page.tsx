@@ -2,97 +2,21 @@
 
 import * as React from "react";
 import { motion } from "framer-motion";
-import { ChevronRight, Sparkles } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Sidebar } from "@/components/sidebar";
-import { TopNav } from "@/components/top-nav";
+import { TopBar } from "@/components/top-bar";
 import { PromptComposer } from "@/components/prompt-composer";
 import { ProjectCard } from "@/components/project-card";
-import { TemplateCard } from "@/components/template-card";
-import { templates, type Project } from "@/lib/mock-data";
-
-type ApiProjectItem = {
-  project: {
-    id: string;
-    name: string;
-    description: string | null;
-    status: string;
-    updated_at: number;
-  };
-  latestRun: {
-    status: string;
-    model: string;
-  } | null;
-  currentSnapshot: {
-    id: string;
-    summary: string;
-    files: Array<{ name: string }>;
-  } | null;
-};
-
-const ACTIVE_RUN_STATUSES = new Set(["queued", "planning", "executing", "validating", "repairing"]);
-
-function mapRunStatusToProjectStatus(status: string | undefined): Project["status"] {
-  if (!status) {
-    return "draft";
-  }
-  if (ACTIVE_RUN_STATUSES.has(status)) {
-    return "building";
-  }
-  if (status === "completed") {
-    return "live";
-  }
-  if (status === "failed" || status === "cancelled") {
-    return "paused";
-  }
-  return "draft";
-}
-
-function deriveProjectStack(item: ApiProjectItem): string[] {
-  const stack = new Set<string>();
-  const fileNames = item.currentSnapshot?.files?.map((file) => file.name.toLowerCase()) ?? [];
-
-  if (fileNames.some((name) => name.endsWith(".tsx") || name.endsWith(".jsx"))) {
-    stack.add("React");
-  }
-  if (fileNames.some((name) => name.endsWith(".ts") || name.endsWith(".tsx"))) {
-    stack.add("TypeScript");
-  }
-  if (fileNames.some((name) => name.endsWith(".css"))) {
-    stack.add("Tailwind");
-  }
-  if (item.latestRun?.model) {
-    stack.add(item.latestRun.model);
-  }
-  if (stack.size === 0) {
-    stack.add("Dexter");
-  }
-
-  return Array.from(stack).slice(0, 4);
-}
-
-function toProjectCard(item: ApiProjectItem): Project {
-  return {
-    id: item.project.id,
-    name: item.project.name,
-    description:
-      item.project.description?.trim() ||
-      item.currentSnapshot?.summary ||
-      "Saved project",
-    status: mapRunStatusToProjectStatus(item.latestRun?.status),
-    lastEdited: new Date(item.project.updated_at),
-    previewUrl: "",
-    stack: deriveProjectStack(item),
-  };
-}
+import { toProjectView, type ApiProjectItem, type ProjectView } from "@/lib/project-view";
 
 export default function HomePage() {
   const router = useRouter();
   const [error, setError] = React.useState("");
-  const [recentProjects, setRecentProjects] = React.useState<Project[]>([]);
+  const [recentProjects, setRecentProjects] = React.useState<ProjectView[]>([]);
   const [recentProjectsError, setRecentProjectsError] = React.useState("");
   const [isRecentProjectsLoading, setIsRecentProjectsLoading] = React.useState(true);
   const [deletingProjectId, setDeletingProjectId] = React.useState<string | null>(null);
+  const [isMockProvider, setIsMockProvider] = React.useState(false);
 
   const loadRecentProjects = React.useCallback(async () => {
     setIsRecentProjectsLoading(true);
@@ -103,7 +27,7 @@ export default function HomePage() {
       if (!response.ok || !data.projects) {
         throw new Error(data.error ?? "Failed to load recent projects");
       }
-      setRecentProjects(data.projects.map(toProjectCard));
+      setRecentProjects(data.projects.slice(0, 6).map(toProjectView));
     } catch (loadError) {
       setRecentProjectsError(
         loadError instanceof Error ? loadError.message : "Failed to load recent projects"
@@ -225,168 +149,131 @@ export default function HomePage() {
     void loadRecentProjects();
   }, [loadRecentProjects]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/config");
+        const data = (await response.json()) as { isMock?: boolean };
+        if (!cancelled) {
+          setIsMockProvider(Boolean(data.isMock));
+        }
+      } catch {
+        // Config check is best-effort; default to hiding the pill.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
-    <div className="min-h-screen bg-[#0B0B0F]">
-      {/* Sidebar */}
-      <Sidebar activeItem="home" />
+    <div className="min-h-screen bg-[#fafafa]">
+      <TopBar variant="marketing" />
 
-      {/* Top Navigation */}
-      <TopNav variant="home" />
-
-      {/* Main Content */}
-      <main className="pl-[72px] pt-16">
-        {/* Background gradient effects */}
-        <div className="fixed inset-0 pointer-events-none overflow-hidden">
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-purple-500/5 rounded-full blur-[120px]" />
-          <div className="absolute top-1/4 right-0 w-[400px] h-[400px] bg-cyan-500/5 rounded-full blur-[100px]" />
-        </div>
-
-        {/* Hero Section */}
-        <section className="relative px-12 pt-20 pb-16">
-          <div className="max-w-4xl mx-auto text-center">
-            {/* Badge */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 mb-8"
-            >
-              <Sparkles className="w-4 h-4 text-purple-400" />
-              <span className="text-sm text-purple-300">AI-Powered Development</span>
-            </motion.div>
-
-            {/* Headline */}
+      <main>
+        {/* Hero */}
+        <section className="px-6 pt-20 pb-16 sm:pt-28">
+          <div className="max-w-3xl mx-auto text-center">
             <motion.h1
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.1 }}
-              className="text-display gradient-text mb-6"
+              transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              className="text-display text-[#1d1d1f] mb-5"
             >
-              Build production software
-              <br />
-              at the speed of thought.
+              Describe it. Watch it get built.
             </motion.h1>
 
-            {/* Subtext */}
             <motion.p
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
-              className="text-xl text-[#9CA3AF] mb-12 max-w-2xl mx-auto"
+              transition={{ duration: 0.35, delay: 0.04, ease: [0.16, 1, 0.3, 1] }}
+              className="text-[17px] text-[#6e6e73] mb-10 max-w-xl mx-auto leading-relaxed"
             >
-              Dexter plans, builds, and iterates with you, from first prompt to
-              production-ready experience.
+              Spec, plan, scaffold, code, validate: every phase gated, every file
+              accounted for.
             </motion.p>
 
-            {/* Prompt Composer */}
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.3 }}
+              transition={{ duration: 0.35, delay: 0.08, ease: [0.16, 1, 0.3, 1] }}
             >
+              {isMockProvider ? (
+                <div className="mb-4 flex justify-center">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-white px-3 py-1 text-[12px] font-medium text-[#6e6e73] shadow-sm">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#86868b]" />
+                    Demo mode — deterministic build
+                  </span>
+                </div>
+              ) : null}
+
               <PromptComposer size="large" onSubmit={onComposerSubmit} />
               {error ? (
-                <p className="mt-3 text-sm text-red-300">{error}</p>
+                <p role="alert" className="mt-3 text-sm text-[#d1242f] text-center">
+                  {error}
+                </p>
               ) : null}
             </motion.div>
           </div>
         </section>
 
-        {/* Recent Builds Section */}
-        <section className="relative px-12 py-12">
-          <div className="max-w-7xl mx-auto">
-            {/* Section Header */}
+        {/* Recent Builds */}
+        <section className="px-6 py-12 pb-24">
+          <div className="max-w-5xl mx-auto">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h2 className="text-title text-[#E6E6EB] mb-1">Recent Builds</h2>
-                <p className="text-sm text-[#6B7280]">Pick up where you left off</p>
+                <h2 className="text-title text-[#1d1d1f] mb-1">Recent builds</h2>
+                <p className="text-[13px] text-[#86868b]">Pick up where you left off</p>
               </div>
-              <motion.button
-                className="flex items-center gap-1 text-sm text-[#9CA3AF] hover:text-[#E6E6EB] transition-colors"
-                whileHover={{ x: 4 }}
+              <button
+                type="button"
+                className="flex items-center gap-1 text-[13px] font-medium text-[#6e6e73] hover:text-[#1d1d1f] transition-colors rounded-[6px]"
                 onClick={() => router.push("/projects")}
               >
                 View all
-                <ChevronRight className="w-4 h-4" />
-              </motion.button>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
             </div>
 
             {recentProjectsError ? (
-              <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+              <div role="alert" className="mb-4 rounded-[12px] border border-[#d1242f]/20 bg-[#d1242f]/5 px-4 py-3 text-sm text-[#d1242f]">
                 {recentProjectsError}
               </div>
             ) : null}
 
-            {/* Horizontal Scroll Cards */}
-            <div className="relative -mx-12 px-12">
-              <div className="flex gap-5 overflow-x-auto pb-4 no-scrollbar">
-                {isRecentProjectsLoading ? (
-                  Array.from({ length: 3 }).map((_, i) => (
-                    <div
-                      key={`recent-skeleton-${i}`}
-                      className="w-[280px] h-[238px] rounded-xl border border-white/6 bg-[#111218] shimmer"
+            <div className="flex gap-4 overflow-x-auto pb-2 no-scrollbar">
+              {isRecentProjectsLoading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <div
+                    key={`recent-skeleton-${i}`}
+                    className="w-[280px] h-[160px] rounded-[14px] border border-black/[0.08] bg-white shimmer shrink-0"
+                  />
+                ))
+              ) : recentProjects.length > 0 ? (
+                recentProjects.map((project, i) => (
+                  <motion.div
+                    key={project.id}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: i * 0.04, ease: [0.16, 1, 0.3, 1] }}
+                  >
+                    <ProjectCard
+                      project={project}
+                      onClick={() => router.push(`/sandbox?projectId=${project.id}`)}
+                      onDelete={(projectId) => void handleDeleteProject(projectId, project.name)}
+                      isDeleting={deletingProjectId === project.id}
                     />
-                  ))
-                ) : recentProjects.length > 0 ? (
-                  recentProjects.map((project, i) => (
-                    <motion.div
-                      key={project.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.4, delay: i * 0.08 }}
-                    >
-                      <ProjectCard
-                        project={project}
-                        onClick={() => router.push(`/sandbox?projectId=${project.id}`)}
-                        onDelete={(projectId) => void handleDeleteProject(projectId, project.name)}
-                        isDeleting={deletingProjectId === project.id}
-                      />
-                    </motion.div>
-                  ))
-                ) : (
-                  <div className="w-full rounded-xl border border-white/10 bg-[#111218] px-5 py-8 text-sm text-[#9CA3AF]">
-                    No projects yet. Generate your first build above to populate recent projects.
-                  </div>
-                )}
-              </div>
-
-              {/* Fade gradients */}
-              <div className="absolute left-0 top-0 bottom-4 w-12 bg-gradient-to-r from-[#0B0B0F] to-transparent pointer-events-none" />
-              <div className="absolute right-0 top-0 bottom-4 w-12 bg-gradient-to-l from-[#0B0B0F] to-transparent pointer-events-none" />
-            </div>
-          </div>
-        </section>
-
-        {/* Templates Section */}
-        <section className="relative px-12 py-12 pb-24">
-          <div className="max-w-7xl mx-auto">
-            {/* Section Header */}
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-title text-[#E6E6EB] mb-1">Templates</h2>
-                <p className="text-sm text-[#6B7280]">Start with a proven foundation</p>
-              </div>
-              <motion.button
-                className="flex items-center gap-1 text-sm text-[#9CA3AF] hover:text-[#E6E6EB] transition-colors"
-                whileHover={{ x: 4 }}
-              >
-                Browse all
-                <ChevronRight className="w-4 h-4" />
-              </motion.button>
-            </div>
-
-            {/* Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {templates.map((template, i) => (
-                <motion.div
-                  key={template.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.4, delay: i * 0.08 }}
-                >
-                  <TemplateCard template={template} />
-                </motion.div>
-              ))}
+                  </motion.div>
+                ))
+              ) : (
+                <div className="w-full rounded-[14px] border border-dashed border-black/[0.12] bg-white/60 px-6 py-12 text-center">
+                  <p className="text-[14px] font-medium text-[#1d1d1f] mb-1">No builds yet</p>
+                  <p className="text-[13px] text-[#86868b]">
+                    Describe an app above and Dexter will build it for you.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </section>
