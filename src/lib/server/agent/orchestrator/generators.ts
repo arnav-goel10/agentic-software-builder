@@ -46,11 +46,13 @@ import {
     buildFileCatalog,
     buildRepoMapSummary,
     buildTaskContextPack,
+    buildCoderFillDependencySources,
+    buildCoderFillRelatedFilesSection,
     createWorkingTreeDigest,
     formatSpecForPrompt,
     pruneNoOpOperations,
 } from "./context";
-import { QA_CONTEXT_CHAR_BUDGET } from "./prompts";
+import { QA_CONTEXT_CHAR_BUDGET, CODER_FILL_CONTEXT_CHAR_BUDGET } from "./prompts";
 import {
     normalizeSpecResponse,
     normalizePlanResponse,
@@ -1203,6 +1205,7 @@ export async function generateCoderFill(input: {
     providers: ConfiguredModelProvider[];
     skeleton: SkeletonFile;
     allContracts: FileContract[];
+    workingFiles: GeneratedFile[];
     dbSchema?: string;
     spec: SpecResponse;
     userPrompt: string;
@@ -1216,7 +1219,50 @@ export async function generateCoderFill(input: {
     });
     const targetPath = normalizePath(input.skeleton.path);
     const fileLanguageMode = buildFileLanguageManifest([input.skeleton.path]);
-    const crossFileContext = input.skeleton.dependencyContracts
+
+    const ownContract = input.allContracts.find((contract) => {
+        try {
+            return normalizePath(contract.path) === targetPath;
+        } catch {
+            return false;
+        }
+    });
+    const purpose = ownContract?.purpose ?? "";
+    const contractSummary = ownContract
+        ? [
+            `Imports: ${ownContract.imports.map((imp) => imp.source).join(", ") || "(none)"}`,
+            `Exports: ${ownContract.exports.map((exp) => `${exp.kind} ${exp.name}`).join(", ") || "(none)"}`,
+        ].join("\n")
+        : "";
+
+    // Coder-fill context enrichment: (a) full source of direct dependency
+    // skeletons within budget, (b) relevance-ranked related files for
+    // whatever budget remains, (c) a cheap export-signature digest for any
+    // dependency that didn't fit in (a). See orchestrator/context.ts.
+    const dependencySources = buildCoderFillDependencySources({
+        targetPath,
+        dependencyContracts: input.skeleton.dependencyContracts,
+        workingFiles: input.workingFiles,
+        charBudget: CODER_FILL_CONTEXT_CHAR_BUDGET,
+    });
+    const relatedFilesSection = buildCoderFillRelatedFilesSection({
+        targetPath,
+        purpose,
+        contractSummary,
+        workingFiles: input.workingFiles,
+        excludePaths: new Set([targetPath, ...dependencySources.coveredPaths]),
+        charBudget: dependencySources.remainingBudget,
+    });
+    const otherSignaturesSection = input.skeleton.dependencyContracts
+        .filter((dep) => {
+            let depPath: string;
+            try {
+                depPath = normalizePath(dep.path);
+            } catch {
+                return false;
+            }
+            return depPath !== targetPath && !dependencySources.coveredPaths.has(depPath);
+        })
         .map((dep) => {
             const exports = dep.exports.map((e) => `  export ${e.kind} ${e.name}: ${e.signature}`).join("\n");
             return `// ${dep.path}\n${exports}`;
@@ -1240,7 +1286,9 @@ export async function generateCoderFill(input: {
             skills.skillsPromptBlock,
             `File language mode:\n${fileLanguageMode}`,
             input.dbSchema ? `Database schema:\n${input.dbSchema}` : "",
-            crossFileContext ? `Cross-file contracts (what dependency files export):\n${crossFileContext}` : "",
+            dependencySources.section ? `Dependency sources:\n${dependencySources.section}` : "",
+            relatedFilesSection ? `Related files:\n${relatedFilesSection}` : "",
+            otherSignaturesSection ? `Other signatures:\n${otherSignaturesSection}` : "",
             `Skeleton code:\n\`\`\`\n${input.skeleton.skeleton}\n\`\`\``,
             "STRICT RULES:",
             "- Return ONLY region bodies (not full file code).",
@@ -1306,6 +1354,7 @@ export async function generateFillForSkeleton(input: {
     providers: ConfiguredModelProvider[];
     skeleton: SkeletonFile;
     allContracts: FileContract[];
+    workingFiles: GeneratedFile[];
     dbSchema?: string;
     spec: SpecResponse;
     userPrompt: string;
@@ -1320,6 +1369,7 @@ export async function generateFillForSkeleton(input: {
                 providers: input.providers,
                 skeleton: input.skeleton,
                 allContracts: input.allContracts,
+                workingFiles: input.workingFiles,
                 dbSchema: input.dbSchema,
                 spec: input.spec,
                 userPrompt: input.userPrompt,

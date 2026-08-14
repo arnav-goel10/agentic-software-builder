@@ -21,7 +21,7 @@ import {
     updateRunStatus,
 } from "@/lib/server/repositories";
 import type { RunRow } from "@/lib/server/types";
-import type { TaskContextPack, ModelTrace, SpecResponse } from "./types";
+import type { TaskContextPack, ModelTrace, SpecResponse, FileContract } from "./types";
 import {
     CONTEXT_FILE_LIMIT,
     CONTEXT_CHAR_BUDGET,
@@ -31,6 +31,7 @@ import {
     REPOMAP_MAX_OWNERSHIP_FILES,
     REPOMAP_MAX_DB_FILES,
     REPOMAP_MAX_FANIN_MODULES,
+    CODER_FILL_DEPENDENCY_SOURCE_CHAR_CAP,
 } from "./prompts";
 
 const RUN_TERMINAL_STATUSES: RunStatus[] = ["completed", "failed", "cancelled"];
@@ -805,6 +806,100 @@ export function buildTaskContextPack(input: {
         fileCatalog: buildFileCatalog(input.files),
         repoMapSummary: buildRepoMapSummary(input.files),
     };
+}
+
+/**
+ * Coder-fill context enrichment, priority (a): pulls FULL SOURCE (current
+ * working-tree content) for a skeleton file's direct dependencies, capped
+ * per-file and by an overall char budget. Dependencies whose source is not
+ * available or does not fit are left for the caller to fall back to a cheap
+ * signature-only summary (priority (c)).
+ */
+export function buildCoderFillDependencySources(input: {
+    targetPath: string;
+    dependencyContracts: FileContract[];
+    workingFiles: GeneratedFile[];
+    charBudget: number;
+}): { section: string; coveredPaths: Set<string>; remainingBudget: number } {
+    const workingByPath = new Map(
+        input.workingFiles.map((file) => [normalizePath(file.name), file] as const)
+    );
+    const covered = new Set<string>();
+    const blocks: string[] = [];
+    let remaining = input.charBudget;
+
+    for (const dep of input.dependencyContracts) {
+        if (remaining <= 100) break;
+
+        let depPath: string;
+        try {
+            depPath = normalizePath(dep.path);
+        } catch {
+            continue;
+        }
+        if (depPath === input.targetPath || covered.has(depPath)) continue;
+
+        const file = workingByPath.get(depPath);
+        if (!file) continue;
+
+        const capped =
+            file.code.length > CODER_FILL_DEPENDENCY_SOURCE_CHAR_CAP
+                ? `${file.code.slice(0, CODER_FILL_DEPENDENCY_SOURCE_CHAR_CAP)}\n/* truncated */`
+                : file.code;
+        const header = `// ${depPath}\n`;
+        const available = remaining - header.length;
+        if (available <= 100) continue;
+
+        const body =
+            capped.length > available ? `${capped.slice(0, available - 20)}\n/* truncated */` : capped;
+        const block = `${header}${body}`;
+        blocks.push(block);
+        covered.add(depPath);
+        remaining -= block.length + 2; // account for the join separator
+    }
+
+    return {
+        section: blocks.join("\n\n"),
+        coveredPaths: covered,
+        remainingBudget: Math.max(0, remaining),
+    };
+}
+
+/**
+ * Coder-fill context enrichment, priority (b): relevance-ranked additional
+ * files (via buildTaskContextPack) for whatever char budget remains after
+ * dependency full sources, excluding files already included.
+ */
+export function buildCoderFillRelatedFilesSection(input: {
+    targetPath: string;
+    purpose: string;
+    contractSummary: string;
+    workingFiles: GeneratedFile[];
+    excludePaths: Set<string>;
+    charBudget: number;
+}): string {
+    if (input.charBudget <= 100) {
+        return "";
+    }
+
+    const candidates = input.workingFiles.filter(
+        (file) => !input.excludePaths.has(normalizePath(file.name))
+    );
+    if (candidates.length === 0) {
+        return "";
+    }
+
+    const pack = buildTaskContextPack({
+        files: candidates,
+        userPrompt: input.purpose,
+        taskTitle: `Fill ${input.targetPath}`,
+        taskInstructions: input.contractSummary || input.purpose,
+    });
+    if (pack.selectedFiles.length === 0) {
+        return "";
+    }
+
+    return createWorkingTreeDigest(pack.selectedFiles, input.charBudget);
 }
 
 export function computeFileSet(files: GeneratedFile[]): Map<string, string> {

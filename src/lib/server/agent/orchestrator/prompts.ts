@@ -4,6 +4,11 @@ export const MAX_PLAN_TASKS = 8;
 export const CONTEXT_FILE_LIMIT = 14;
 export const CONTEXT_CHAR_BUDGET = 30000;
 export const QA_CONTEXT_CHAR_BUDGET = 120000;
+// Coder-fill context enrichment: total char budget for dependency full
+// sources + relevance-ranked related files threaded into each fill call,
+// and the per-file cap applied when a single dependency source is huge.
+export const CODER_FILL_CONTEXT_CHAR_BUDGET = 24000;
+export const CODER_FILL_DEPENDENCY_SOURCE_CHAR_CAP = 6000;
 export const REPOMAP_MAX_ENTRYPOINTS = 8;
 export const REPOMAP_MAX_OWNERSHIP_FILES = 12;
 export const REPOMAP_MAX_DB_FILES = 6;
