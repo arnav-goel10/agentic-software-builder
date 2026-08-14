@@ -10,14 +10,10 @@ import {
     Eye,
     Play,
     Loader2,
-    Bot,
     ExternalLink,
     Maximize2,
     Minimize2,
     X,
-    FileCode,
-    Save,
-    RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWebContainer } from "@/hooks/use-web-container";
@@ -26,10 +22,8 @@ import { createPortal } from "react-dom";
 import type { Terminal } from "xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 import "xterm/css/xterm.css";
-import { FileExplorer } from "@/components/FileExplorer";
-import { CodeEditor } from "@/components/CodeEditor";
 
-type ViewMode = "preview" | "terminal" | "split" | "files";
+type ViewMode = "preview" | "terminal";
 type DeviceMode = "desktop" | "tablet" | "mobile";
 
 interface PreviewFrameProps {
@@ -75,30 +69,6 @@ function createDependencySignature(files: GeneratedFile[]): string {
     return createFilesSignature(dependencyFiles);
 }
 
-function resolveEditorLanguage(pathName: string): string {
-    const lower = pathName.toLowerCase();
-    if (lower.endsWith(".json")) return "json";
-    if (lower.endsWith(".css") || lower.endsWith(".scss") || lower.endsWith(".sass")) return "css";
-    if (lower.endsWith(".html")) return "html";
-    if (
-        lower.endsWith(".js") ||
-        lower.endsWith(".jsx") ||
-        lower.endsWith(".mjs") ||
-        lower.endsWith(".cjs")
-    ) {
-        return "javascript";
-    }
-    if (
-        lower.endsWith(".ts") ||
-        lower.endsWith(".tsx") ||
-        lower.endsWith(".mts") ||
-        lower.endsWith(".cts")
-    ) {
-        return "typescript";
-    }
-    return "plaintext";
-}
-
 export function PreviewFrame({
     files = [],
     projectId = null,
@@ -120,68 +90,6 @@ export function PreviewFrame({
     const autoRunStartedRef = React.useRef(false);
     const runInFlightRef = React.useRef(false);
     const activeProjectIdRef = React.useRef<string | null>(null);
-
-    // File Editor State
-    const [localFiles, setLocalFiles] = React.useState<GeneratedFile[]>(files);
-    const [selectedFile, setSelectedFile] = React.useState<string | null>(null);
-    const [isSaving, setIsSaving] = React.useState(false);
-    const [isResetting, setIsResetting] = React.useState(false);
-
-    React.useEffect(() => {
-        setLocalFiles(files);
-    }, [files]);
-
-    const activeFileContent = React.useMemo(() => {
-        if (!selectedFile) return "";
-        const file = localFiles.find((f) => f.name === selectedFile);
-        return file?.code ?? "";
-    }, [localFiles, selectedFile]);
-
-    const handleFileChange = React.useCallback((value: string | undefined) => {
-        if (!selectedFile || value === undefined) return;
-        setLocalFiles((prev) =>
-            prev.map((f) => (f.name === selectedFile ? { ...f, code: value } : f))
-        );
-    }, [selectedFile]);
-
-    const handleSaveFile = React.useCallback(async () => {
-        if (!selectedFile || !projectId) return;
-        const file = localFiles.find((f) => f.name === selectedFile);
-        if (!file) return;
-
-        setIsSaving(true);
-        try {
-            await fetch(`/api/projects/${projectId}/files/save`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ path: file.name, content: file.code }),
-            });
-            // Ideally assume success for now, optimistic update already happened in localFiles
-        } catch (err) {
-            console.error("Failed to save file", err);
-            // Revert? For now just log
-        } finally {
-            setIsSaving(false);
-        }
-    }, [localFiles, projectId, selectedFile]);
-
-    const handleResetFiles = React.useCallback(async () => {
-        if (!projectId) return;
-        if (!confirm("Revert all changes to the last Agent checkpoint? This cannot be undone.")) return;
-
-        setIsResetting(true);
-        try {
-            const res = await fetch(`/api/projects/${projectId}/files/reset`, {
-                method: "POST",
-            });
-            if (res.ok) {
-                window.location.reload(); // Hard reload to fetch fresh state
-            }
-        } catch (err) {
-            console.error("Failed to reset files", err);
-            setIsResetting(false);
-        }
-    }, [projectId]);
 
     const { container, status, url, error, boot, mount, install, startDev, stopDev } = useWebContainer();
 
@@ -211,7 +119,6 @@ export function PreviewFrame({
         }
     }, [autoMountEnabled, autoRunEnabled, files.length, status, boot]);
 
-    // Initialize Terminal
     // Initialize Terminal eagerly (regardless of viewMode) so auto-run output is captured
     const terminalInitializedRef = React.useRef(false);
     React.useEffect(() => {
@@ -226,10 +133,10 @@ export function PreviewFrame({
 
                 const term = new Terminal({
                     theme: {
-                        background: '#0B0B0F',
-                        foreground: '#E6E6EB',
-                        cursor: '#E6E6EB',
-                        selectionBackground: '#5B4E7A',
+                        background: "#161618",
+                        foreground: "#e5e5e7",
+                        cursor: "#e5e5e7",
+                        selectionBackground: "#0071e355",
                     },
                     fontFamily: 'Menlo, Monaco, "Courier New", monospace',
                     fontSize: 12,
@@ -262,7 +169,7 @@ export function PreviewFrame({
 
     // Handle resize when switching back to terminal view
     React.useEffect(() => {
-        if ((viewMode === "terminal" || viewMode === "split") && xtermRef.current && fitAddonRef.current) {
+        if (viewMode === "terminal" && xtermRef.current && fitAddonRef.current) {
             // Slight delay to allow layout to settle
             setTimeout(() => {
                 fitAddonRef.current?.fit();
@@ -350,21 +257,19 @@ export function PreviewFrame({
     const renderPreviewContent = () => {
         if (!url) {
             return (
-                <div className="flex flex-col items-center justify-center h-full text-zinc-500 gap-4">
-                    <div className="p-4 rounded-full bg-zinc-100">
-                        <Loader2 className={cn("w-8 h-8", (status === 'starting' || status === 'booting' || status === 'installing') && "animate-spin")} />
-                    </div>
-                    <p className="font-mono text-xs uppercase tracking-widest text-[#6B7280]">
+                <div className="flex flex-col items-center justify-center h-full text-[#6e6e73] gap-4">
+                    <Loader2 className={cn("w-6 h-6 text-[#0071e3]", (status === 'starting' || status === 'booting' || status === 'installing') && "animate-spin")} />
+                    <p className="text-[13px] text-[#6e6e73]">
                         {status === 'idle' ? 'Ready to launch project' :
                             status === 'error' ? `Error: ${error}` : 'Waiting for runtime...'}
                     </p>
                     <div className="flex gap-4">
-                        <button onClick={handleRun} disabled={status !== 'ready'} className="text-[10px] font-bold uppercase tracking-widest text-cyan-500 hover:text-cyan-400 transition-colors">
-                            [ BOOT_SEQUENCE ]
+                        <button onClick={handleRun} disabled={status !== 'ready'} className="text-[12px] font-medium text-[#0071e3] hover:text-[#0058b0] transition-colors rounded-[6px]">
+                            Boot runtime
                         </button>
                         {(status === 'error' || status === 'installing' || status === 'starting') && (
-                            <button onClick={() => window.location.reload()} className="text-[10px] font-bold uppercase tracking-widest text-red-500 hover:text-red-400 transition-colors">
-                                [ HARD_RESET ]
+                            <button onClick={() => window.location.reload()} className="text-[12px] font-medium text-[#d1242f] hover:text-[#a01c25] transition-colors rounded-[6px]">
+                                Hard reset
                             </button>
                         )}
                     </div>
@@ -385,23 +290,23 @@ export function PreviewFrame({
                     }}
                 />
                 {!iframeLoaded && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-[1px] text-zinc-700 text-sm font-mono uppercase tracking-widest">
-                        Synthesizing...
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-[1px] text-[#6e6e73] text-[13px]">
+                        Loading preview...
                     </div>
                 )}
                 {iframeEmbedBlocked && (
-                    <div className="absolute left-3 right-3 bottom-3 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[10px] text-amber-200 backdrop-blur-md">
-                        <div className="font-bold mb-1 uppercase tracking-tighter">Iframe Blocked</div>
-                        <div className="opacity-70">Browser privacy settings may prevent embedding. Please check your browser security/privacy preferences.</div>
+                    <div className="absolute left-3 right-3 bottom-3 rounded-[10px] border border-[#9a6700]/20 bg-[#9a6700]/10 px-3 py-2 text-[12px] text-[#9a6700]">
+                        <div className="font-medium mb-1">Preview blocked</div>
+                        <div className="opacity-80">Browser privacy settings may prevent embedding. Check your browser&apos;s security/privacy preferences.</div>
                     </div>
                 )}
                 {error && (
-                    <div className="absolute top-3 left-3 right-3 rounded-md border border-red-500/40 bg-black/80 px-3 py-2 text-[10px] text-red-200 backdrop-blur-sm font-mono">
-                        <div className="font-bold mb-1 uppercase tracking-tighter">Kernel Panic</div>
-                        <div className="opacity-70 line-clamp-3">{error}</div>
+                    <div className="absolute top-3 left-3 right-3 rounded-[10px] border border-[#d1242f]/25 bg-white px-3 py-2 text-[12px] text-[#d1242f] shadow-md">
+                        <div className="font-medium mb-1">Runtime error</div>
+                        <div className="opacity-90 line-clamp-3">{error}</div>
                         <div className="flex gap-3 mt-2">
-                            <button onClick={() => setViewMode("terminal")} className="text-cyan-400 font-bold hover:underline">VIEW_LOGS</button>
-                            <button onClick={() => window.location.reload()} className="text-red-400 font-bold hover:underline">SYSTEM_RELOAD</button>
+                            <button onClick={() => setViewMode("terminal")} className="text-[#0071e3] font-medium hover:underline rounded-[4px]">View logs</button>
+                            <button onClick={() => window.location.reload()} className="text-[#d1242f] font-medium hover:underline rounded-[4px]">Reload</button>
                         </div>
                     </div>
                 )}
@@ -571,297 +476,119 @@ export function PreviewFrame({
         };
     }, [url]);
 
+    const statusMeta: Record<typeof status, { label: string; className: string }> = {
+        idle: { label: "Idle", className: "bg-black/[0.04] border-black/[0.08] text-[#86868b]" },
+        booting: { label: "Booting", className: "bg-[#0071e3]/10 border-[#0071e3]/20 text-[#0071e3]" },
+        installing: { label: "Installing", className: "bg-[#0071e3]/10 border-[#0071e3]/20 text-[#0071e3]" },
+        starting: { label: "Starting", className: "bg-[#0071e3]/10 border-[#0071e3]/20 text-[#0071e3]" },
+        running: { label: "Running", className: "bg-[#1a7f37]/10 border-[#1a7f37]/20 text-[#1a7f37]" },
+        ready: { label: "Ready", className: "bg-black/[0.04] border-black/[0.08] text-[#86868b]" },
+        error: { label: "Error", className: "bg-[#d1242f]/10 border-[#d1242f]/20 text-[#d1242f]" },
+    };
+
     return (
-        <div ref={frameRootRef} className="flex flex-col h-full bg-[#0B0B0F]">
+        <div ref={frameRootRef} className="flex flex-col h-full bg-white">
             {/* Toolbar */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/6 gap-4">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-black/[0.08] gap-4">
                 {/* View mode tabs */}
-                <div className="flex items-center gap-1 p-1 rounded-lg bg-[#111218]">
+                <div className="flex items-center gap-1 p-1 rounded-[10px] bg-[#f5f5f7]">
                     <TabButton
                         active={viewMode === "preview"}
                         onClick={() => setViewMode("preview")}
-                        icon={<Eye className="w-4 h-4" />}
+                        icon={<Eye className="w-3.5 h-3.5" />}
                         label="Preview"
                     />
                     <TabButton
                         active={viewMode === "terminal"}
                         onClick={() => setViewMode("terminal")}
-                        icon={<TerminalIcon className="w-4 h-4" />}
-                        label="Terminal"
-                    />
-                    <TabButton
-                        active={viewMode === "files"}
-                        onClick={() => setViewMode("files")}
-                        icon={<FileCode className="w-4 h-4" />}
-                        label="Files"
+                        icon={<TerminalIcon className="w-3.5 h-3.5" />}
+                        label="Logs"
                     />
                 </div>
 
-                {/* File Editor Controls */}
-                {viewMode === "files" && (
-                    <div className="flex items-center gap-2 mr-auto ml-4">
-                        <button
-                            onClick={handleSaveFile}
-                            disabled={!selectedFile || isSaving}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 text-xs font-mono uppercase tracking-wider disabled:opacity-50 transition-colors border border-purple-500/20"
-                        >
-                            {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                            Save
-                        </button>
-                        <button
-                            onClick={handleResetFiles}
-                            disabled={isResetting}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-mono uppercase tracking-wider disabled:opacity-50 transition-colors border border-red-500/20"
-                        >
-                            {isResetting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                            Reset
-                        </button>
-                        {selectedFile && <span className="text-xs text-zinc-500 font-mono ml-2">{selectedFile}</span>}
-                    </div>
-                )}
-
                 {/* Status & Controls */}
-                <div className="flex items-center gap-3">
-                    <div className={cn(
-                        "flex items-center gap-2.5 px-3 py-1.5 rounded-full border backdrop-blur-md transition-all duration-500",
-                        status === 'running' ? "bg-emerald-500/10 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]" :
-                            status === 'error' ? "bg-red-500/10 border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.1)]" :
-                                (status === 'booting' || status === 'installing' || status === 'starting') ? "bg-cyan-500/10 border-cyan-500/30 shadow-[0_0_15px_rgba(34,211,238,0.1)]" :
-                                    "bg-white/5 border-white/10"
-                    )}>
+                <div className="flex items-center gap-3 ml-auto">
+                    <div className={cn("flex items-center gap-2 px-2.5 py-1 rounded-full border text-[11px] font-medium", statusMeta[status].className)}>
                         {(status === 'booting' || status === 'installing' || status === 'starting') && (
-                            <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />
+                            <Loader2 className="w-3 h-3 animate-spin" />
                         )}
-                        {status === 'running' && (
-                            <div className="relative">
-                                <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                                <div className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-40" />
-                            </div>
-                        )}
-                        {status === 'error' && <div className="w-2 h-2 rounded-full bg-red-500" />}
-                        {status === 'ready' && <div className="w-2 h-2 rounded-full bg-white/20" />}
-
-                        <span className={cn(
-                            "text-[10px] font-mono font-bold uppercase tracking-widest",
-                            status === 'running' ? "text-emerald-400" :
-                                status === 'error' ? "text-red-400" :
-                                    (status === 'booting' || status === 'installing' || status === 'starting') ? "text-cyan-400" :
-                                        "text-white/40"
-                        )}>
-                            {status}
-                        </span>
+                        {status === 'running' && <span className="w-1.5 h-1.5 rounded-full bg-[#1a7f37]" />}
+                        {status === 'error' && <span className="w-1.5 h-1.5 rounded-full bg-[#d1242f]" />}
+                        {(status === 'ready' || status === 'idle') && <span className="w-1.5 h-1.5 rounded-full bg-black/20" />}
+                        {statusMeta[status].label}
                     </div>
 
                     <button
                         onClick={handleRun}
                         disabled={status !== 'ready' && status !== 'error' && status !== 'running'}
                         className={cn(
-                            "relative group/run flex items-center gap-2.5 px-4 py-1.5 rounded-lg text-[11px] font-mono font-bold uppercase tracking-widest transition-all overflow-hidden border",
+                            "flex items-center gap-1.5 px-3.5 py-1.5 rounded-[10px] text-[12.5px] font-medium transition-colors",
                             status !== 'ready' && status !== 'error' && status !== 'running'
-                                ? "bg-white/5 border-white/5 text-white/20 cursor-not-allowed"
-                                : "bg-emerald-600 border-emerald-400/50 text-white shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] active:scale-95"
+                                ? "bg-black/[0.04] text-[#c7c7cc] cursor-not-allowed"
+                                : "bg-[#0071e3] text-white hover:bg-[#0077ed] active:bg-[#0068d1]"
                         )}
                     >
-                        <Play className={cn("w-3.5 h-3.5 fill-current transition-transform duration-300 group-hover/run:scale-110", status === 'running' && "animate-pulse")} />
-                        <span>Run</span>
-
-                        {/* Shimmer Effect */}
-                        {status === 'ready' || status === 'error' || status === 'running' ? (
-                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover/run:translate-x-full transition-transform duration-1000" />
-                        ) : null}
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        Run
                     </button>
                 </div>
 
                 {/* Device toggles */}
-                <div className="flex items-center gap-2">
-                    <DeviceButton
-                        active={deviceMode === "desktop"}
-                        onClick={() => setDeviceMode("desktop")}
-                        icon={<Monitor className="w-4 h-4" />}
-                    />
-                    <DeviceButton
-                        active={deviceMode === "tablet"}
-                        onClick={() => setDeviceMode("tablet")}
-                        icon={<Tablet className="w-4 h-4" />}
-                    />
-                    <DeviceButton
-                        active={deviceMode === "mobile"}
-                        onClick={() => setDeviceMode("mobile")}
-                        icon={<Smartphone className="w-4 h-4" />}
-                    />
-                    <DeviceButton
-                        active={isImmersivePreview}
-                        onClick={handlePopout}
-                        icon={<Eye className="w-4 h-4" />}
-                        title="Immersive Preview"
-                        disabled={!url}
-                    />
-                    <DeviceButton
-                        active={false}
-                        onClick={handleOpenAppUrl}
-                        icon={<ExternalLink className="w-4 h-4" />}
-                        title="Open App URL in New Tab"
-                        disabled={!url}
-                    />
+                <div className="flex items-center gap-1">
+                    <DeviceButton active={deviceMode === "desktop"} onClick={() => setDeviceMode("desktop")} icon={<Monitor className="w-4 h-4" />} title="Desktop" />
+                    <DeviceButton active={deviceMode === "tablet"} onClick={() => setDeviceMode("tablet")} icon={<Tablet className="w-4 h-4" />} title="Tablet" />
+                    <DeviceButton active={deviceMode === "mobile"} onClick={() => setDeviceMode("mobile")} icon={<Smartphone className="w-4 h-4" />} title="Mobile" />
+                    <DeviceButton active={isImmersivePreview} onClick={handlePopout} icon={<Eye className="w-4 h-4" />} title="Immersive preview" disabled={!url} />
+                    <DeviceButton active={false} onClick={handleOpenAppUrl} icon={<ExternalLink className="w-4 h-4" />} title="Open in new tab" disabled={!url} />
                     <DeviceButton
                         active={isFullscreen}
                         onClick={() => void handleFullscreenToggle()}
-                        icon={
-                            isFullscreen ? (
-                                <Minimize2 className="w-4 h-4" />
-                            ) : (
-                                <Maximize2 className="w-4 h-4" />
-                            )
-                        }
-                        title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                        icon={isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                        title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
                     />
-
                 </div>
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 overflow-hidden relative">
-                {/* Setup Animation Overlay */}
+            <div className="flex-1 overflow-hidden relative bg-[#f5f5f7]">
+                {/* Setup loading overlay */}
                 <AnimatePresence>
                     {(viewMode === "preview" && status !== "running" && status !== "idle" && !url) && (
                         <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#0B0B0F]"
+                            transition={{ duration: 0.2 }}
+                            className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white"
                         >
-                            {/* 3D Quantum Core Container */}
-                            <div className="relative w-72 h-72 flex items-center justify-center" style={{ perspective: "1000px" }}>
-                                {/* Depth Glow Background */}
-                                <div className="absolute inset-8 rounded-full bg-purple-600/10 blur-[60px] animate-pulse" />
+                            <Loader2 className="w-7 h-7 text-[#0071e3] animate-spin mb-4" />
+                            <p className="text-[14px] font-medium text-[#1d1d1f] mb-1">
+                                {status === 'booting' ? 'Booting runtime' :
+                                    status === 'installing' ? 'Installing dependencies' :
+                                        status === 'starting' ? 'Starting dev server' :
+                                            status === 'error' ? 'Runtime error' :
+                                                'Syncing files'}
+                            </p>
+                            <p className="text-[12.5px] text-[#86868b]">This usually takes a few seconds.</p>
 
-                                {/* Orbital Ring - Outer (X-Axis) */}
-                                <motion.div
-                                    animate={{ rotateX: 360, rotateZ: 360 }}
-                                    transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
-                                    className="absolute inset-0 rounded-full border border-purple-500/30"
-                                    style={{ transformStyle: "preserve-3d" }}
-                                />
-
-                                {/* Orbital Ring - Middle (Y-Axis) */}
-                                <motion.div
-                                    animate={{ rotateY: 360, rotateZ: -360 }}
-                                    transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
-                                    className="absolute inset-4 rounded-full border border-cyan-500/20"
-                                    style={{ transformStyle: "preserve-3d" }}
-                                />
-
-                                {/* Orbital Ring - Inner (Tilted) */}
-                                <motion.div
-                                    animate={{ rotateX: -360, rotateY: 360 }}
-                                    transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-                                    className="absolute inset-8 rounded-full border border-white/10"
-                                    style={{ transformStyle: "preserve-3d" }}
-                                />
-
-                                {/* Glowing Core Node */}
-                                <motion.div
-                                    animate={{
-                                        scale: [1, 1.05, 1],
-                                        boxShadow: [
-                                            "0 0 30px rgba(168, 85, 247, 0.2)",
-                                            "0 0 60px rgba(34, 211, 238, 0.4)",
-                                            "0 0 30px rgba(168, 85, 247, 0.2)"
-                                        ]
-                                    }}
-                                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                                    className={cn(
-                                        "w-20 h-20 rounded-full flex items-center justify-center relative z-10",
-                                        "bg-gradient-to-br from-purple-600/30 to-cyan-600/30 border border-white/20 backdrop-blur-sm"
-                                    )}
-                                >
-                                    <Bot className="w-8 h-8 text-white/90" />
-
-                                    {/* Core Energy Pulse */}
-                                    <motion.div
-                                        animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
-                                        transition={{ duration: 2, repeat: Infinity }}
-                                        className="absolute inset-0 rounded-full border border-cyan-400/40"
-                                    />
-                                </motion.div>
-
-                                {/* Kinetic Particle Accents (locked to exact orbit paths) */}
-                                <motion.div
-                                    animate={{ rotateX: 360, rotateZ: 360 }}
-                                    transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
-                                    className="absolute inset-0"
-                                    style={{ transformStyle: "preserve-3d" }}
-                                >
-                                    <div className="absolute -top-[3px] left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_14px_rgba(168,85,247,0.95)]" />
-                                </motion.div>
-                                <motion.div
-                                    animate={{ rotateY: 360, rotateZ: -360 }}
-                                    transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
-                                    className="absolute inset-4"
-                                    style={{ transformStyle: "preserve-3d" }}
-                                >
-                                    <div className="absolute -top-[3px] left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.95)]" />
-                                </motion.div>
-                            </div>
-
-                            {/* Tactical Status Block */}
-                            <motion.div
-                                initial={{ y: 20, opacity: 0 }}
-                                animate={{ y: 0, opacity: 1 }}
-                                className="mt-8 text-center"
-                            >
-                                <div className="flex flex-col items-center gap-4">
-                                    <div className="space-y-1">
-                                        <h3 className="text-sm font-bold text-white tracking-[0.3em] uppercase font-mono bg-gradient-to-r from-purple-400 via-white to-cyan-400 bg-clip-text text-transparent">
-                                            Environment Setup Active
-                                        </h3>
-                                        <div className="h-[1px] w-full bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+                            {status === "error" && (
+                                <div className="mt-5 w-full max-w-[520px] px-4">
+                                    <div className="rounded-[10px] border border-[#d1242f]/20 bg-[#d1242f]/5 px-3 py-2.5">
+                                        <p className="text-[11px] font-medium uppercase tracking-wide text-[#d1242f]">
+                                            Runtime error
+                                        </p>
+                                        <p className="mt-1 text-[12.5px] text-[#7a1c22] break-words">
+                                            {error ?? "Unknown runtime error"}
+                                        </p>
+                                        <button
+                                            onClick={() => setViewMode("terminal")}
+                                            className="mt-2 text-[11.5px] font-medium text-[#0071e3] hover:underline"
+                                        >
+                                            View logs
+                                        </button>
                                     </div>
-
-                                    <p className="text-[11px] font-mono text-[#9CA3AF] uppercase tracking-widest px-4 h-4">
-                                        {status === 'booting' ? '> ALLOCATING_KERNEL_RESOURCES' :
-                                            status === 'installing' ? '> EXTRACTING_DEPENDENCY_GRAPH' :
-                                                status === 'starting' ? '> SPAWNING_DEVELOPMENT_RUNTIME' :
-                                                    status === 'error' ? '> RUNTIME_EXCEPTION_DETECTED' :
-                                                        '> SYNCING_VIRTUAL_FILESYSTEM'}
-                                    </p>
                                 </div>
-
-                                {/* Animated Data Packets */}
-                                <div className="flex justify-center gap-2 mt-6">
-                                    {[0, 1, 2, 3, 4].map((i) => (
-                                        <motion.div
-                                            key={i}
-                                            animate={{
-                                                height: [4, 12, 4],
-                                                opacity: [0.3, 1, 0.3],
-                                                backgroundColor: i % 2 === 0 ? "#A855F7" : "#22D3EE"
-                                            }}
-                                            transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.1 }}
-                                            className="w-[2px] rounded-full"
-                                        />
-                                    ))}
-                                </div>
-
-                                {status === "error" && (
-                                    <div className="mt-5 w-full max-w-[620px] px-4">
-                                        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2">
-                                            <p className="text-[10px] font-mono uppercase tracking-wider text-red-300/90">
-                                                Runtime error
-                                            </p>
-                                            <p className="mt-1 text-[11px] text-red-100/85 break-words">
-                                                {error ?? "Unknown runtime error"}
-                                            </p>
-                                            <button
-                                                onClick={() => setViewMode("terminal")}
-                                                className="mt-2 text-[10px] font-mono uppercase tracking-wider text-cyan-300 hover:text-cyan-200"
-                                            >
-                                                [ VIEW TERMINAL LOGS ]
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
-                            </motion.div>
+                            )}
                         </motion.div>
                     )}
                 </AnimatePresence>
@@ -869,17 +596,17 @@ export function PreviewFrame({
                 {/* Terminal Layer */}
                 <div
                     className={cn(
-                        "absolute inset-0 bg-[#0B0B0F] p-4 transition-opacity duration-300",
+                        "absolute inset-0 bg-[#161618] p-3 transition-opacity duration-200",
                         viewMode === "terminal" ? "opacity-100 z-10" : "opacity-0 -z-10"
                     )}
                 >
-                    <div ref={terminalRef} className="h-full w-full rounded-lg overflow-hidden border border-white/10 bg-black/50" />
+                    <div ref={terminalRef} className="h-full w-full rounded-[10px] overflow-hidden border border-white/10" />
                 </div>
 
                 {/* Preview Layer */}
                 <div
                     className={cn(
-                        "absolute inset-0 transition-opacity duration-300 flex flex-col items-center justify-center p-4 sm:p-8 overflow-hidden bg-[#0F1117]/30",
+                        "absolute inset-0 transition-opacity duration-200 flex flex-col items-center justify-center p-4 sm:p-8 overflow-hidden",
                         viewMode === "preview" ? "opacity-100 z-10" : "opacity-0 -z-10"
                     )}
                 >
@@ -891,31 +618,17 @@ export function PreviewFrame({
                             {deviceMode === "mobile" && (
                                 <motion.div
                                     key="iphone"
-                                    initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                                    exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                                    initial={{ opacity: 0, scale: 0.96 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.96 }}
+                                    transition={{ duration: 0.2 }}
                                     className="relative w-[320px] aspect-[9/19.5] sm:w-[360px] max-h-full"
                                 >
-                                    {/* iPhone 15 Pro Chassis */}
-                                    <div className="absolute inset-x-[-12px] inset-y-[-12px] rounded-[48px] border-[3px] border-zinc-800 bg-zinc-900 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.7)] pointer-events-none" />
-                                    <div className="absolute inset-x-[-10px] inset-y-[-10px] rounded-[46px] border border-white/5 pointer-events-none" />
-
-                                    {/* Dynamic Island */}
-                                    <div className="absolute top-6 left-1/2 -translate-x-1/2 w-20 h-6 bg-black rounded-full z-30 flex items-center justify-between px-2.5 overflow-hidden">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500/40 blur-[1px]" />
-                                        <div className="w-1.5 h-1.5 rounded-full bg-zinc-800" />
-                                    </div>
-
-                                    {/* Side Buttons */}
-                                    <div className="absolute left-[-14px] top-24 w-[3px] h-8 bg-zinc-700 rounded-r-sm" />
-                                    <div className="absolute left-[-14px] top-36 w-[3px] h-12 bg-zinc-700 rounded-r-sm" />
-                                    <div className="absolute right-[-14px] top-40 w-[3px] h-20 bg-zinc-700 rounded-l-sm" />
-
+                                    <div className="absolute inset-x-[-12px] inset-y-[-12px] rounded-[48px] border-[3px] border-[#1d1d1f] bg-[#1d1d1f] shadow-xl pointer-events-none" />
+                                    <div className="absolute top-6 left-1/2 -translate-x-1/2 w-20 h-6 bg-black rounded-full z-30" />
                                     <div className="relative h-full w-full rounded-[36px] overflow-hidden border border-black/40 bg-white">
                                         {renderPreviewContent()}
                                     </div>
-
-                                    {/* Home Bar */}
                                     <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-24 h-1 bg-black/20 rounded-full z-20" />
                                 </motion.div>
                             )}
@@ -923,22 +636,16 @@ export function PreviewFrame({
                             {deviceMode === "tablet" && (
                                 <motion.div
                                     key="ipad"
-                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    initial={{ opacity: 0, scale: 0.97 }}
                                     animate={{ opacity: 1, scale: 1 }}
-                                    exit={{ opacity: 0, scale: 0.95 }}
+                                    exit={{ opacity: 0, scale: 0.97 }}
+                                    transition={{ duration: 0.2 }}
                                     className="relative w-full max-w-[800px] aspect-[4/3] max-h-full"
                                 >
-                                    {/* iPad Pro Chassis */}
-                                    <div className="absolute inset-x-[-10px] inset-y-[-10px] rounded-[32px] border-[2px] border-zinc-800 bg-zinc-900 shadow-[20px_40px_80px_-20px_rgba(0,0,0,0.8)] pointer-events-none" />
-
-                                    {/* Camera Hole */}
-                                    <div className="absolute top-1/2 -right-4 -translate-y-1/2 w-1.5 h-8 bg-black rounded-l-md" />
-
+                                    <div className="absolute inset-x-[-10px] inset-y-[-10px] rounded-[32px] border-[2px] border-[#1d1d1f] bg-[#1d1d1f] shadow-xl pointer-events-none" />
                                     <div className="relative h-full w-full rounded-[24px] overflow-hidden border border-black/40 bg-white">
                                         {renderPreviewContent()}
                                     </div>
-
-                                    {/* Home Bar */}
                                     <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-32 h-1 bg-black/10 rounded-full z-20" />
                                 </motion.div>
                             )}
@@ -949,7 +656,8 @@ export function PreviewFrame({
                                     initial={{ opacity: 0 }}
                                     animate={{ opacity: 1 }}
                                     exit={{ opacity: 0 }}
-                                    className="w-full h-full rounded-xl overflow-hidden shadow-2xl border border-white/10 bg-white"
+                                    transition={{ duration: 0.2 }}
+                                    className="w-full h-full rounded-[12px] overflow-hidden shadow-lg border border-black/[0.08] bg-white"
                                 >
                                     {renderPreviewContent()}
                                 </motion.div>
@@ -958,69 +666,29 @@ export function PreviewFrame({
                     </motion.div>
                 </div>
 
-                {/* File Editor Layer */}
-                <div
-                    className={cn(
-                        "absolute inset-0 bg-[#0B0B0F] transition-opacity duration-300 flex",
-                        viewMode === "files" ? "opacity-100 z-10" : "opacity-0 -z-10"
-                    )}
-                >
-                    {/* File Tree */}
-                    <div className="w-64 border-r border-white/10 bg-[#0F1117] flex flex-col">
-                        <div className="p-3 border-b border-white/5 text-[10px] font-mono uppercase tracking-widest text-zinc-500">
-                            Explorer
-                        </div>
-                        <FileExplorer
-                            files={localFiles}
-                            onSelect={setSelectedFile}
-                            selectedPath={selectedFile ?? undefined}
-                            className="flex-1"
-                        />
-                    </div>
-                    {/* Editor */}
-                    <div className="flex-1 bg-[#1e1e1e] flex flex-col">
-                        {selectedFile ? (
-                            <CodeEditor
-                                code={activeFileContent}
-                                language={resolveEditorLanguage(selectedFile)}
-                                onChange={handleFileChange}
-                            />
-                        ) : (
-                            <div className="flex flex-col items-center justify-center h-full text-zinc-600">
-                                <FileCode className="w-12 h-12 mb-4 opacity-20" />
-                                <p className="text-sm font-mono uppercase tracking-widest">Select a file to edit</p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
                 {isImmersivePreview && url && portalRoot
                     ? createPortal(
                         <div ref={immersiveRootRef} className="fixed inset-0 z-[9999] bg-black">
-                            <div className="absolute right-4 top-4 z-10 flex items-center gap-2 rounded-lg border border-white/15 bg-black/70 px-2 py-1 backdrop-blur-sm">
+                            <div className="absolute right-4 top-4 z-10 flex items-center gap-2 rounded-[10px] border border-white/15 bg-black/70 px-2 py-1 backdrop-blur-sm">
                                 <a
                                     href={url}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="rounded-md p-2 text-white/80 hover:bg-white/10 hover:text-white"
+                                    className="rounded-[8px] p-2 text-white/80 hover:bg-white/10 hover:text-white"
                                     title="Open app URL in new tab"
                                 >
                                     <ExternalLink className="h-4 w-4" />
                                 </a>
                                 <button
                                     onClick={() => void handleFullscreenToggle()}
-                                    className="rounded-md p-2 text-white/80 hover:bg-white/10 hover:text-white"
+                                    className="rounded-[8px] p-2 text-white/80 hover:bg-white/10 hover:text-white"
                                     title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
                                 >
-                                    {isFullscreen ? (
-                                        <Minimize2 className="h-4 w-4" />
-                                    ) : (
-                                        <Maximize2 className="h-4 w-4" />
-                                    )}
+                                    {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                                 </button>
                                 <button
                                     onClick={closeImmersivePreview}
-                                    className="rounded-md p-2 text-white/80 hover:bg-white/10 hover:text-white"
+                                    className="rounded-[8px] p-2 text-white/80 hover:bg-white/10 hover:text-white"
                                     title="Close immersive preview"
                                 >
                                     <X className="h-4 w-4" />
@@ -1046,20 +714,12 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
         <button
             onClick={onClick}
             className={cn(
-                "relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold uppercase tracking-widest transition-all",
-                active
-                    ? "bg-white/10 text-white shadow-[0_0_15px_rgba(255,255,255,0.05)] border border-white/10"
-                    : "text-[#6B7280] hover:text-[#9CA3AF] hover:bg-white/5 border border-transparent"
+                "relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] text-[12px] font-medium transition-colors",
+                active ? "bg-white text-[#1d1d1f] shadow-sm" : "text-[#86868b] hover:text-[#1d1d1f]"
             )}
         >
             {icon}
-            <span className="hidden sm:inline">{label}</span>
-            {active && (
-                <motion.div
-                    layoutId="tab-underline"
-                    className="absolute -bottom-1 left-2 right-2 h-[1px] bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.6)]"
-                />
-            )}
+            <span>{label}</span>
         </button>
     );
 }
@@ -1081,13 +741,12 @@ function DeviceButton({
         <button
             onClick={onClick}
             title={title}
+            aria-label={title}
             disabled={disabled}
             className={cn(
-                "p-2 rounded-lg transition-all border",
-                disabled && "opacity-40 cursor-not-allowed",
-                active
-                    ? "bg-white/10 text-white border-white/10 shadow-[0_0_10px_rgba(255,255,255,0.05)]"
-                    : "text-[#6B7280] hover:text-[#9CA3AF] hover:bg-white/5 border-transparent"
+                "p-1.5 rounded-[8px] transition-colors",
+                disabled && "opacity-30 cursor-not-allowed",
+                active ? "bg-black/[0.06] text-[#1d1d1f]" : "text-[#86868b] hover:text-[#1d1d1f] hover:bg-black/[0.04]"
             )}
         >
             {icon}

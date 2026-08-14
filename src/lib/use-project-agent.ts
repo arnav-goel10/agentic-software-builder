@@ -355,23 +355,6 @@ export function useProjectAgent({ initialProjectId }: UseProjectAgentInput = {})
         stream.addEventListener("run_snapshot", mergeStep);
         stream.addEventListener("run_started", mergeStep);
         stream.addEventListener("step", mergeStep);
-        stream.addEventListener("coder_started", mergeStep);
-        stream.addEventListener("run_heartbeat", (event) => {
-          try {
-            const data = JSON.parse(event.data) as { phase?: string; taskId?: string };
-            if (data?.phase) {
-              setCurrentRun((prev) => {
-                if (!prev) return prev;
-                if (!isActiveRunStatus(prev.status)) {
-                  return { ...prev, status: "executing" };
-                }
-                return prev;
-              });
-            }
-          } catch {
-            // no-op
-          }
-        });
         stream.addEventListener("phase_timeout", (event) => {
           try {
             const data = JSON.parse(event.data) as {
@@ -547,71 +530,9 @@ export function useProjectAgent({ initialProjectId }: UseProjectAgentInput = {})
             }
           } catch { }
         });
-        stream.addEventListener("coder_completed", mergeStep);
-        stream.addEventListener("coder_noop_classified", (event) => {
-          try {
-            const data = JSON.parse(event.data) as {
-              taskId?: string;
-              detail?: string;
-            };
-            if (!data.taskId) return;
-            setSteps((prev) => {
-              const idx = prev.findIndex((step) => step.payload?.taskId === data.taskId && step.phase === "coder");
-              if (idx < 0) return prev;
-              const next = [...prev];
-              next[idx] = {
-                ...next[idx],
-                detail: data.detail
-                  ? `${next[idx].detail}\n${data.detail}`
-                  : next[idx].detail,
-              };
-              return next;
-            });
-          } catch {
-            // no-op
-          }
-        });
-        stream.addEventListener("coder_deferred", (event) => {
-          try {
-            const data = JSON.parse(event.data) as {
-              taskId?: string;
-              detail?: string;
-            };
-            if (!data.taskId) return;
-            setSteps((prev) => {
-              const idx = prev.findIndex((step) => step.payload?.taskId === data.taskId && step.phase === "coder");
-              if (idx < 0) return prev;
-              const next = [...prev];
-              next[idx] = {
-                ...next[idx],
-                detail: data.detail
-                  ? `${next[idx].detail}\nDeferred: ${data.detail}`
-                  : `${next[idx].detail}\nDeferred to later repair/QA.`,
-              };
-              return next;
-            });
-          } catch {
-            // no-op
-          }
-        });
-        stream.addEventListener("context_compacted", (event) => {
-          try {
-            const data = JSON.parse(event.data) as {
-              detail?: string;
-            };
-            const detail = data?.detail;
-            if (detail) {
-              setError((prev) => (prev ? prev : compactUiError(detail)));
-            }
-          } catch {
-            // no-op
-          }
-        });
         stream.addEventListener("memory_cards_updated", () => {
           // Reserved for memory activity indicators (future UI surface).
         });
-        stream.addEventListener("validation_failed", mergeStep);
-        stream.addEventListener("repair_started", mergeStep);
 
         // Terminal events — do a single full refresh for files/messages
         stream.addEventListener("run_completed", () => {

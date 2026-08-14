@@ -1,17 +1,23 @@
 "use client";
 
 import * as React from "react";
-import { motion } from "framer-motion";
+import * as Tabs from "@radix-ui/react-tabs";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Sidebar } from "@/components/sidebar";
-import { SandboxAgentPanel } from "@/components/sandbox-agent-panel";
-import { SandboxToolbar } from "@/components/sandbox-toolbar";
-import { useProjectAgent } from "@/lib/use-project-agent";
+import { cn } from "@/lib/utils";
+import { TopBar } from "@/components/top-bar";
+import { PhaseTimeline } from "@/components/phase-timeline";
+import { ActivityPanel } from "@/components/activity-panel";
+import { FilesPanel } from "@/components/files-panel";
+import { RunDetailsPanel } from "@/components/run-details-panel";
 import { PreviewFrame } from "@/components/preview-frame";
+import { useProjectAgent } from "@/lib/use-project-agent";
+
+const RUN_ACTIVE_STATUSES = new Set(["queued", "planning", "executing", "validating", "repairing"]);
 
 export default function SandboxContent() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("projectId");
+  const router = useRouter();
 
   const {
     activeProject,
@@ -26,9 +32,12 @@ export default function SandboxContent() {
     sendMessage,
     snapshots,
     steps,
+    artifacts,
+    hasProject,
   } = useProjectAgent({ initialProjectId: projectId });
 
-  const router = useRouter();
+  const [activeTab, setActiveTab] = React.useState<"activity" | "files" | "preview">("activity");
+  const [detailsCollapsed, setDetailsCollapsed] = React.useState(false);
 
   const handleSendMessage = React.useCallback(
     async (content: string) => {
@@ -36,42 +45,77 @@ export default function SandboxContent() {
         await sendMessage(content);
         return;
       }
-
       const created = await createProjectFromPrompt(content);
       router.push(`/sandbox?projectId=${created.projectId}`);
     },
     [activeProject, createProjectFromPrompt, router, sendMessage]
   );
 
+  const runStatusPill = currentRun ? (
+    <span
+      className={cn(
+        "shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        currentRun.status === "completed"
+          ? "border-[#1a7f37]/20 bg-[#1a7f37]/10 text-[#1a7f37]"
+          : currentRun.status === "failed" || currentRun.status === "cancelled"
+            ? "border-[#d1242f]/20 bg-[#d1242f]/10 text-[#d1242f]"
+            : RUN_ACTIVE_STATUSES.has(currentRun.status)
+              ? "border-[#0071e3]/20 bg-[#0071e3]/10 text-[#0071e3]"
+              : "border-black/[0.08] bg-black/[0.03] text-[#6e6e73]"
+      )}
+    >
+      {currentRun.status}
+    </span>
+  ) : null;
+
   return (
-    <div className="h-screen bg-[#0B0B0F] overflow-hidden flex relative font-sans text-zinc-200">
-      {/* Global Futuristic Background Decor */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {/* Radial Grid Pattern */}
-        <div className="absolute inset-0 opacity-[0.03]"
-          style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '48px 48px' }} />
+    <div className="flex h-screen flex-col bg-[#fafafa]">
+      <TopBar
+        variant="app"
+        title={activeProject?.name ?? "New build"}
+        titleAdornment={runStatusPill}
+      />
 
-        {/* Subtle Glows */}
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-500/5 blur-[120px] rounded-full" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-cyan-500/5 blur-[120px] rounded-full" />
-      </div>
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* Left: phase timeline */}
+        <aside className="hidden w-[220px] shrink-0 border-r border-black/[0.08] bg-white md:block">
+          <PhaseTimeline steps={steps} currentRun={currentRun} isRunning={isRunning} />
+        </aside>
 
-      <Sidebar activeItem="sandbox" />
+        {/* Center: tabbed Activity / Files / Preview */}
+        <Tabs.Root
+          value={activeTab}
+          onValueChange={(value) => setActiveTab(value as typeof activeTab)}
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
+        >
+          <div className="flex items-center border-b border-black/[0.08] bg-white px-4">
+            <Tabs.List className="flex items-center gap-1 py-2" aria-label="Workspace views">
+              {(["activity", "files", "preview"] as const).map((tab) => (
+                <Tabs.Trigger
+                  key={tab}
+                  value={tab}
+                  className={cn(
+                    "rounded-[8px] px-3 py-1.5 text-[13px] font-medium capitalize transition-colors",
+                    "text-[#86868b] hover:text-[#1d1d1f] data-[state=active]:bg-[#f5f5f7] data-[state=active]:text-[#1d1d1f]"
+                  )}
+                >
+                  {tab}
+                </Tabs.Trigger>
+              ))}
+            </Tabs.List>
+          </div>
 
-      <main className="flex-1 flex flex-col pl-[72px] relative z-10">
-        <SandboxToolbar
-          projectName={activeProject?.name ?? "Untitled Sandbox"}
-        />
-
-        <div className="flex-1 flex overflow-hidden">
-          <motion.div
-            initial={{ x: -20, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1], delay: 0.1 }}
-            className="z-10"
+          {/*
+            forceMount + data-state visibility (rather than Radix's default
+            unmount-on-inactive) keeps Files edits and the Preview tab's
+            WebContainer/dev-server session alive when switching tabs.
+          */}
+          <Tabs.Content
+            value="activity"
+            forceMount
+            className="min-h-0 flex-1 flex-col outline-none data-[state=inactive]:hidden data-[state=active]:flex"
           >
-            <SandboxAgentPanel
-              projectName={activeProject?.name ?? "Select a project"}
+            <ActivityPanel
               messages={messages}
               currentRun={currentRun}
               runHistory={runHistory}
@@ -79,28 +123,44 @@ export default function SandboxContent() {
               snapshots={snapshots}
               isRunning={isRunning}
               error={error}
+              hasProject={hasProject}
               onSendMessage={handleSendMessage}
               onRestoreSnapshot={restoreSnapshot}
             />
-          </motion.div>
+          </Tabs.Content>
 
-          <motion.div
-            initial={{ opacity: 0, scale: 0.99 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
-            className="flex-1 relative z-0"
+          <Tabs.Content
+            value="files"
+            forceMount
+            className="min-h-0 flex-1 flex-col outline-none data-[state=inactive]:hidden data-[state=active]:flex"
           >
-            <div className="h-full relative z-0 border-l border-white/10 glass-panel">
-              <PreviewFrame
-                files={currentFiles}
-                projectId={activeProject?.id ?? projectId}
-                autoMountEnabled={!isRunning}
-                autoRunEnabled={snapshots.length > 0}
-              />
-            </div>
-          </motion.div>
-        </div>
-      </main>
+            <FilesPanel files={currentFiles} projectId={activeProject?.id ?? projectId} />
+          </Tabs.Content>
+
+          <Tabs.Content
+            value="preview"
+            forceMount
+            className="min-h-0 flex-1 flex-col outline-none data-[state=inactive]:hidden data-[state=active]:flex"
+          >
+            <PreviewFrame
+              files={currentFiles}
+              projectId={activeProject?.id ?? projectId}
+              autoMountEnabled={!isRunning}
+              autoRunEnabled={snapshots.length > 0}
+            />
+          </Tabs.Content>
+        </Tabs.Root>
+
+        {/* Right: collapsible run details */}
+        <RunDetailsPanel
+          currentRun={currentRun}
+          steps={steps}
+          artifacts={artifacts}
+          messages={messages}
+          collapsed={detailsCollapsed}
+          onToggleCollapsed={() => setDetailsCollapsed((prev) => !prev)}
+        />
+      </div>
     </div>
   );
 }
