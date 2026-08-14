@@ -45,7 +45,7 @@ export const SHARED_TECHNICAL_CONSTRAINTS = `Hard constraints:
 - Do not rely on environment variables for database connection — PGlite runs locally.
 - Never use native browser dialog APIs (window.alert/window.prompt/window.confirm). Always implement in-app modal/dialog UI.
 - Router ownership must be singular: define exactly one top-level router provider (BrowserRouter or RouterProvider) in a runtime entrypoint (src/main.* or App.*). Never wrap context/providers/components with additional router providers.
-- TanStack Query ownership must be singular: define one top-level QueryClientProvider with a shared QueryClient in the runtime entrypoint (src/main.* or index.*). Do not call query hooks in the same component that creates that provider.
+- TanStack Query ownership must be singular: src/main.jsx is system-owned and cannot be edited, so the one top-level QueryClientProvider (with a shared QueryClient) lives in src/App.jsx. Structure it as an outer App component that ONLY renders QueryClientProvider wrapping an inner content component; every query hook call belongs in that inner component or deeper, never in App itself.
 - If using Tailwind with PostCSS, use "tailwindcss" as the plugin in postcss config (never "@tailwindcss/postcss").
 - In CSS files, use @tailwind base; @tailwind components; @tailwind utilities; (never @import "tailwindcss";).
 - Avoid shadcn semantic token classes in @apply blocks (border-border, bg-background, text-foreground, ring-ring, etc.). Prefer concrete Tailwind utilities unless you explicitly define matching theme tokens.

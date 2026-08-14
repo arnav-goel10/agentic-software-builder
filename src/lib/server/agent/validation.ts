@@ -1990,7 +1990,7 @@ function validateReactQueryProviderSemantics(files: GeneratedFile[]): Validation
         code: "react_query.provider_scope_violation",
         file: file.name,
         message:
-          `Query hook \`${violatingCall}\` is invoked before QueryClientProvider in the same module. Move QueryClientProvider to runtime entrypoint and keep hook consumers inside that provider tree.`,
+          `Query hook \`${violatingCall}\` is invoked before QueryClientProvider in the same module. Split the file: keep QueryClientProvider in the outer component and move every query hook into an inner child component rendered inside the provider (src/main.jsx is system-owned and cannot be edited).`,
       });
       break;
     }
