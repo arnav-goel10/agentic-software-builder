@@ -373,6 +373,9 @@ export function validateSkeletonWorkingTree(
 
     const routeLikePath =
       !isSkeletonEntrypointFile(normalizedContractPath) &&
+      // Frontend routing semantics only: Express files under server/ have
+      // their own checks and must never be asked for React route structure.
+      !isServerOwnedPath(normalizedContractPath) &&
       (routeOwnedPaths.size > 0
         ? routeOwnedPaths.has(normalizedContractPath)
         : /(^|\/)(routes?|pages?)\//i.test(normalizedContractPath) ||
