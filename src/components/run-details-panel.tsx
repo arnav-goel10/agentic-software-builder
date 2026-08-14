@@ -51,6 +51,8 @@ export function RunDetailsPanel({
 
   const diagnostics = (metricsArtifact?.content?.diagnostics ?? null) as DiagnosticsShape | null;
   const executionMode = metricsArtifact?.content?.executionMode;
+  const stackProfile = metricsArtifact?.content?.stackProfile;
+  const designLanguage = metricsArtifact?.content?.designLanguage;
 
   const modelChain = React.useMemo(() => {
     const chain: Array<{ phaseLabel: string; model: string; reasoning?: boolean }> = [];
@@ -148,6 +150,16 @@ export function RunDetailsPanel({
               {typeof executionMode === "string" ? (
                 <p className="mt-2 text-[11.5px] text-[#a1a1a6]">
                   Mode: <span className="font-mono">{executionMode}</span>
+                </p>
+              ) : null}
+              {typeof stackProfile === "string" ? (
+                <p className="mt-1 text-[11.5px] text-[#a1a1a6]">
+                  Stack: <span className="font-mono">{stackProfile}</span>
+                </p>
+              ) : null}
+              {typeof designLanguage === "string" ? (
+                <p className="mt-1 text-[11.5px] text-[#a1a1a6]">
+                  Design: <span className="font-mono">{designLanguage}</span>
                 </p>
               ) : null}
             </section>
