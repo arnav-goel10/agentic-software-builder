@@ -28,6 +28,20 @@ npm run build      # production build (CI runs this on every push)
 
 Runtime state lives in `data/` (gitignored). Provider keys load from environment variables.
 
+## Hosting the demo
+
+Demo mode runs the full pipeline UX against the deterministic mock provider: no API keys, no cost, instant phases. Set:
+
+```bash
+DEXTER_MODEL_PROVIDER=mock
+DEXTER_MOCK_FIXTURES=./scripts/test/fixtures/todo-app
+DEXTER_ENABLE_SKELETON_VALIDATION=false
+DEXTER_ENABLE_FINAL_VALIDATION=false
+DEXTER_ENABLE_QA=false
+```
+
+The validation gates stay off in demo mode because fixtures are pre-validated; a live provider (`DEXTER_MODEL_PROVIDER=google` with `GEMINI_API_KEY`) runs with every gate on. The UI shows a "Demo mode" pill automatically when the mock provider is active.
+
 ## Benchmark status
 
 A benchmark harness is included. Following the evidence policy used across this account: no benchmark numbers are published here until a run is reproducible end to end. The build and typecheck gates run in CI on every push.
