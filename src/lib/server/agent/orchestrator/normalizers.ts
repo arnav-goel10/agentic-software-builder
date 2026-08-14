@@ -927,6 +927,49 @@ export function normalizeSkeletonSpecDagResponse(
     const payload = candidate as Partial<SkeletonSpecDagResponse & ArchitectPlanResponse>;
     const plan = normalizeArchitectPlanResponse(payload, fallbackPrompt);
     let nodes = normalizeSkeletonDagNodes((payload as { nodes?: unknown }).nodes, plan.fileContracts);
+    // Canonicalize the app root: models sometimes plan a bare "App.jsx" at
+    // the repo root. The seeded src/main.jsx imports "./App" from src/, so
+    // rename bare variants to src/App.<ext> (rewriting dependency edges)
+    // instead of letting the app-root guard inject a confusing duplicate.
+    const BARE_APP_PATH = /^(?:\.\/)?app\.(jsx|tsx|js|ts)$/i;
+    const canonicalizeAppPath = (rawPath: string): string => {
+        const match = BARE_APP_PATH.exec(rawPath.trim());
+        return match ? `src/App.${match[1].toLowerCase()}` : rawPath;
+    };
+    plan.fileContracts = plan.fileContracts.map((contract) => ({
+        ...contract,
+        path: canonicalizeAppPath(contract.path),
+    }));
+    nodes = nodes.map((node) => ({
+        ...node,
+        path: canonicalizeAppPath(node.path),
+        dependsOnPaths: node.dependsOnPaths.map((dependencyPath) =>
+            canonicalizeAppPath(dependencyPath)
+        ),
+    }));
+    // Deduplicate any path collisions the canonicalization introduced,
+    // keeping the first occurrence and merging dependency edges.
+    const seenNodePaths = new Map<string, number>();
+    const dedupedNodes: typeof nodes = [];
+    for (const node of nodes) {
+        const existingIndex = seenNodePaths.get(node.path);
+        if (existingIndex === undefined) {
+            seenNodePaths.set(node.path, dedupedNodes.length);
+            dedupedNodes.push(node);
+        } else {
+            const existing = dedupedNodes[existingIndex];
+            existing.dependsOnPaths = Array.from(
+                new Set([...existing.dependsOnPaths, ...node.dependsOnPaths])
+            ).filter((dependencyPath) => dependencyPath !== existing.path);
+        }
+    }
+    nodes = dedupedNodes;
+    const seenContractPaths = new Set<string>();
+    plan.fileContracts = plan.fileContracts.filter((contract) => {
+        if (seenContractPaths.has(contract.path)) return false;
+        seenContractPaths.add(contract.path);
+        return true;
+    });
     // System-owned files (entrypoints + build configs) are seeded
     // deterministically and protected from model edits, so planning nodes
     // for them wastes generation calls and guarantees doomed fill attempts.
