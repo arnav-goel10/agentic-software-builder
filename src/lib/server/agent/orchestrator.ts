@@ -328,6 +328,15 @@ function isFinalValidationEnabled(): boolean {
   return parseBooleanEnv(process.env.DEXTER_ENABLE_FINAL_VALIDATION, true);
 }
 
+// Static validation (validateFinalWorkingTree + the deterministic autofix)
+// and the terminal build check (npm install + npm run build) both live
+// behind DEXTER_ENABLE_FINAL_VALIDATION today. This lets a run keep static
+// validation on while skipping only the slow/expensive npm install+build,
+// e.g. for a mock-provider harness that wants gates on without a real build.
+function isTerminalBuildSkipped(): boolean {
+  return parseBooleanEnv(process.env.DEXTER_SKIP_TERMINAL_BUILD, false);
+}
+
 function isQaEnabled(): boolean {
   return parseBooleanEnv(process.env.DEXTER_ENABLE_QA, true);
 }
@@ -1702,10 +1711,19 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
       }
     }
 
-    const terminalBuild = await runTerminalBuildCheck(validation.files, {
-      runtimeGateTimeoutMs,
-      projectId: run.project_id,
-    });
+    const terminalBuild: TerminalBuildCheckResult = isTerminalBuildSkipped()
+      ? {
+          passed: true,
+          install: null,
+          build: null,
+          issues: [],
+          diagnostics: ["[terminal] terminal build check skipped by configuration"],
+          outputTail: [],
+        }
+      : await runTerminalBuildCheck(validation.files, {
+          runtimeGateTimeoutMs,
+          projectId: run.project_id,
+        });
 
     // Drain any invalid-file-operation issues queued since the last gate so
     // the fix-DAG loop gets a chance to see and address them, rather than

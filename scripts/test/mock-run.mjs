@@ -144,7 +144,6 @@ async function main() {
 
   if (finishedRun.status !== "completed") {
     printRunSteps(run.id);
-    reportAndExit();
     return;
   }
 
@@ -152,7 +151,6 @@ async function main() {
   check("project has a current snapshot", Boolean(snapshot));
 
   if (!snapshot) {
-    reportAndExit();
     return;
   }
 
@@ -204,8 +202,6 @@ async function main() {
   if (todoList) {
     check("src/components/TodoList.jsx fill includes the rendered list", /todos\.map/.test(todoList.code));
   }
-
-  reportAndExit();
 }
 
 function reportAndExit() {
@@ -218,8 +214,81 @@ function reportAndExit() {
   console.log("[mock-run] PASSED: all assertions succeeded.");
 }
 
+// --- Scenario 2: validation + QA gates on, terminal build skipped ---------
+//
+// Scenario 1 above proves the mock fill pipeline end-to-end with every
+// post-fill gate disabled. This scenario proves the opposite edge: static
+// validation and the QA gate (including its repair loop) both run for
+// real against the mock provider's output, while DEXTER_SKIP_TERMINAL_BUILD
+// skips only the slow npm install/build sub-step so the harness stays fast
+// and keyless. It asserts the run still completes and that QA actually ran.
+
+async function runScenarioTwo() {
+  console.log("\n[mock-run] Scenario 2: validation + QA gates on, terminal build skipped");
+
+  process.env.DEXTER_ENABLE_SKELETON_VALIDATION = "false";
+  process.env.DEXTER_ENABLE_FINAL_VALIDATION = "true";
+  process.env.DEXTER_ENABLE_QA = "true";
+  process.env.DEXTER_ENABLE_FIX_DAG = "true";
+  process.env.DEXTER_SKIP_TERMINAL_BUILD = "true";
+
+  const project = createProject({ name: "Mock Todo App Run (gates on)" });
+  const thread = createThread({ projectId: project.id, title: "Build a todo app" });
+  const triggerMessage = createMessage({
+    threadId: thread.id,
+    role: "user",
+    content:
+      "Build a simple todo app where I can add a task, mark it complete, and remove it from the list.",
+  });
+  const run = createRun({
+    projectId: project.id,
+    threadId: thread.id,
+    triggerMessageId: triggerMessage.id,
+    model: "mock/mock-model",
+  });
+
+  console.log(`[mock-run] Created project=${project.id} thread=${thread.id} run=${run.id}`);
+  console.log("[mock-run] Executing run against the mock provider (gates on)...");
+
+  await executeRun({ runId: run.id });
+
+  const finishedRun = getRunById(run.id);
+  if (!finishedRun) {
+    console.error("[mock-run] Scenario 2 run vanished after execution (unexpected).");
+    failures += 1;
+    return;
+  }
+
+  console.log(`[mock-run] Scenario 2 run finished with status: ${finishedRun.status}`);
+
+  console.log("\n[mock-run] Scenario 2 assertions:");
+  check(
+    "scenario 2: run status is completed",
+    finishedRun.status === "completed",
+    `actual=${finishedRun.status} error=${finishedRun.error ?? "(none)"}`
+  );
+
+  const steps = listRunSteps(run.id).map(toParsedRunStep);
+  const qaSteps = steps.filter((step) => step.phase === "qa");
+  check("scenario 2: at least one QA step ran", qaSteps.length > 0);
+  check(
+    "scenario 2: QA step reports the final quality gate",
+    qaSteps.some((step) => step.title.toLowerCase().includes("quality gate")),
+    qaSteps.map((step) => step.title).join(", ")
+  );
+
+  if (finishedRun.status !== "completed") {
+    printRunSteps(run.id);
+    return;
+  }
+
+  const snapshot = getCurrentSnapshotForProject(project.id);
+  check("scenario 2: project has a current snapshot", Boolean(snapshot));
+}
+
 try {
   await main();
+  await runScenarioTwo();
 } catch (error) {
   console.error("[mock-run] Harness crashed:", error);
   process.exitCode = 1;
@@ -229,4 +298,5 @@ try {
   } catch {
     // Best-effort cleanup only.
   }
+  reportAndExit();
 }

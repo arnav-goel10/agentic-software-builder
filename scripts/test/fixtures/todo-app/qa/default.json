@@ -1,0 +1,12 @@
+{
+  "score": 92,
+  "summary": "Implementation meets the acceptance criteria with minor polish opportunities remaining.",
+  "hardBlockers": [],
+  "softBlockers": ["Consider adding empty-state styling for the todo list."],
+  "warnings": [],
+  "acceptance": [],
+  "suggestedFixes": [],
+  "attempt": 1,
+  "maxAttempts": 1,
+  "blockingDecision": "pass"
+}

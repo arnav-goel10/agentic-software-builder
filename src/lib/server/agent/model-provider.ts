@@ -1830,6 +1830,15 @@ async function resolveMockFixturePath(context: {
     if (await fileExists(single)) {
       return single;
     }
+
+    // Fall back to a folder default even without an explicit target, so a
+    // key like "qa" or "fix_dag" can ship one shared default.json fixture
+    // instead of requiring every caller to pass a mockFixtureTarget.
+    const fallback = path.join(context.fixturesDir, context.key, "default.json");
+    attempted.push(fallback);
+    if (await fileExists(fallback)) {
+      return fallback;
+    }
   }
 
   throw toProviderError(
