@@ -1863,6 +1863,11 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   let executionScope: ExecutionScope = "full_rebuild";
   let executionModeReasoning = "No prior snapshot; first run always builds from scratch.";
   let executionModeTargetPaths: string[] = [];
+  // Diagnostics accumulation for this trace is deferred until after
+  // `diagnostics` exists (it's initialized once executionMode is known,
+  // right before the spec step below) — see accumulateProviderDiagnostics
+  // call further down.
+  let modeDecisionTrace: ModelTrace | null = null;
   if (hasExistingSnapshot) {
     const modeDecision = await resolveExecutionModeDecision({
       providers: specProviders,
@@ -1871,7 +1876,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
       priorRunContext,
       files: workingFiles,
     });
-    accumulateProviderDiagnostics(modeDecision.trace);
+    modeDecisionTrace = modeDecision.trace;
     executionMode = modeDecision.mode;
     executionScope = modeDecision.scope;
     executionModeReasoning = modeDecision.reasoning;
@@ -1954,6 +1959,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   });
 
   const diagnostics = initializeDiagnostics(0, executionMode);
+  accumulateProviderDiagnostics(modeDecisionTrace);
   diagnostics.specQualityScore = estimateSpecQualityScore(spec);
 
   const specTelemetry = getTraceTelemetry("spec", specProviders, specResult.trace);

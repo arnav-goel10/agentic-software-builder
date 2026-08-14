@@ -1,0 +1,6 @@
+{
+  "mode": "followup_fix_mode",
+  "scope": "targeted_edit",
+  "reasoning": "The request only asks for a dark mode toggle in the header of the existing todo app; the rest of the app is unaffected.",
+  "targetPaths": ["src/App.jsx"]
+}

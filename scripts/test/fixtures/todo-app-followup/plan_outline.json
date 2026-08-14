@@ -1,0 +1,13 @@
+{
+  "summary": "Single targeted task: add a dark mode toggle to the existing App header.",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Add dark mode toggle to header",
+      "instructions": "Edit src/App.jsx in place to add a dark mode toggle button in the header that switches a darkMode state/class. Keep the existing todo state and TodoList wiring unchanged.",
+      "objectiveType": "direct_fix",
+      "dependsOn": [],
+      "taskWriteSet": ["src/App.jsx"]
+    }
+  ]
+}

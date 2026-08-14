@@ -1,0 +1,19 @@
+{
+  "summary": "Add a dark mode toggle to the header of the existing todo app.",
+  "requirements": [
+    "A toggle control in the app header switches the app between light and dark appearance.",
+    "The current theme is reflected immediately in the app's styling."
+  ],
+  "acceptanceCriteria": [
+    "Clicking the toggle switches the app between light and dark appearance.",
+    "The existing todo add/toggle/remove behavior continues to work unchanged."
+  ],
+  "nonGoals": [
+    "No persistence of the theme choice across reloads is required for this pass."
+  ],
+  "testChecklist": [
+    "Open the app and confirm the dark mode toggle is visible in the header.",
+    "Click the toggle and confirm the appearance switches.",
+    "Confirm existing todo add/toggle/remove behavior is unaffected."
+  ]
+}

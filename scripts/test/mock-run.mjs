@@ -16,9 +16,15 @@ import os from "node:os";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.join(__dirname, "fixtures", "todo-app");
+const FOLLOWUP_FIXTURES_DIR = path.join(__dirname, "fixtures", "todo-app-followup");
 
 if (!fs.existsSync(FIXTURES_DIR)) {
   console.error(`[mock-run] Fixtures directory not found: ${FIXTURES_DIR}`);
+  process.exit(1);
+}
+
+if (!fs.existsSync(FOLLOWUP_FIXTURES_DIR)) {
+  console.error(`[mock-run] Follow-up fixtures directory not found: ${FOLLOWUP_FIXTURES_DIR}`);
   process.exit(1);
 }
 
@@ -144,14 +150,14 @@ async function main() {
 
   if (finishedRun.status !== "completed") {
     printRunSteps(run.id);
-    return;
+    return null;
   }
 
   const snapshot = getCurrentSnapshotForProject(project.id);
   check("project has a current snapshot", Boolean(snapshot));
 
   if (!snapshot) {
-    return;
+    return null;
   }
 
   /** @type {Array<{ name: string; code: string; language?: string }>} */
@@ -202,6 +208,10 @@ async function main() {
   if (todoList) {
     check("src/components/TodoList.jsx fill includes the rendered list", /todos\.map/.test(todoList.code));
   }
+
+  // Returned so scenario 3 can send a follow-up message into this SAME
+  // project/thread and diff its snapshot against this one.
+  return { project, thread, files, byName };
 }
 
 function reportAndExit() {
@@ -286,9 +296,150 @@ async function runScenarioTwo() {
   check("scenario 2: project has a current snapshot", Boolean(snapshot));
 }
 
+// --- Scenario 3: follow-up run in the same thread (targeted-edit path) ----
+//
+// Sends a second, unrelated-in-mechanism-but-related-in-app message into the
+// SAME project/thread scenario 1 completed: "Add a dark mode toggle to the
+// header." A prior snapshot now exists, so classifyExecutionMode's model
+// call runs (mode.json fixture), scoping this run to "targeted_edit". The
+// follow-up fixtures' skeleton DAG contains exactly one node — src/App.jsx —
+// which already exists in the working tree, so it is routed through
+// generateFileEdit (file_edit fixture) instead of the skeleton->fill
+// pipeline. This proves: (a) the run completes, (b) every original file
+// survives in the new snapshot, (c) App.jsx picks up the dark-mode edit, and
+// (d) untouched files (TodoList.jsx) come out byte-identical to run 1.
+//
+// Gates are reset to scenario 1's all-off configuration (scenario 2 leaves
+// them on in process.env) so this scenario stays scoped to proving the
+// follow-up classification + targeted-edit flow, not re-proving the gates.
+async function runScenarioThree(scenarioOne) {
+  console.log("\n[mock-run] Scenario 3: follow-up run in the same thread (targeted-edit path)");
+
+  if (!scenarioOne) {
+    console.error("[mock-run] Scenario 3 skipped: scenario 1 did not produce a project/thread to follow up on.");
+    failures += 1;
+    return;
+  }
+
+  process.env.DEXTER_ENABLE_SKELETON_VALIDATION = "false";
+  process.env.DEXTER_ENABLE_FINAL_VALIDATION = "false";
+  process.env.DEXTER_ENABLE_QA = "false";
+  process.env.DEXTER_SKIP_TERMINAL_BUILD = "false";
+  process.env.DEXTER_MOCK_FIXTURES = FOLLOWUP_FIXTURES_DIR;
+
+  const { project, thread, byName: originalByName } = scenarioOne;
+
+  const followupMessage = createMessage({
+    threadId: thread.id,
+    role: "user",
+    content: "Add a dark mode toggle to the header.",
+  });
+  const run = createRun({
+    projectId: project.id,
+    threadId: thread.id,
+    triggerMessageId: followupMessage.id,
+    model: "mock/mock-model",
+  });
+
+  console.log(`[mock-run] Follow-up run=${run.id} in existing project=${project.id} thread=${thread.id}`);
+  console.log("[mock-run] Executing follow-up run against the mock provider (targeted-edit scope)...");
+
+  await executeRun({ runId: run.id });
+
+  const finishedRun = getRunById(run.id);
+  if (!finishedRun) {
+    console.error("[mock-run] Scenario 3 run vanished after execution (unexpected).");
+    failures += 1;
+    return;
+  }
+
+  console.log(`[mock-run] Scenario 3 run finished with status: ${finishedRun.status}`);
+
+  console.log("\n[mock-run] Scenario 3 assertions:");
+  check(
+    "scenario 3: run status is completed",
+    finishedRun.status === "completed",
+    `actual=${finishedRun.status} error=${finishedRun.error ?? "(none)"}`
+  );
+
+  if (finishedRun.status !== "completed") {
+    printRunSteps(run.id);
+    return;
+  }
+
+  const steps = listRunSteps(run.id).map(toParsedRunStep);
+  check(
+    "scenario 3: mode was classified as a followup_fix_mode / targeted_edit run",
+    steps.some((step) => step.payload?.executionMode === "followup_fix_mode"),
+    steps.map((step) => `${step.phase}:${step.payload?.executionMode ?? "?"}`).join(", ")
+  );
+  check(
+    "scenario 3: an existing-file edit step ran (skipped skeleton regeneration)",
+    steps.some((step) => step.title === "Edit existing files for follow-up"),
+    steps.map((step) => step.title).join(", ")
+  );
+  check(
+    "scenario 3: no fresh skeleton files were generated for the follow-up",
+    !steps.some(
+      (step) => step.title === "Generate skeleton files" && (step.payload?.skeletonCount ?? 0) > 0
+    )
+  );
+
+  const snapshot = getCurrentSnapshotForProject(project.id);
+  check("scenario 3: project has a new current snapshot", Boolean(snapshot));
+  if (!snapshot) {
+    return;
+  }
+
+  /** @type {Array<{ name: string; code: string; language?: string }>} */
+  const files = JSON.parse(snapshot.files_json);
+  const byName = new Map(files.map((file) => [file.name, file]));
+  console.log(`[mock-run] Scenario 3 snapshot has ${files.length} file(s): ${files.map((f) => f.name).sort().join(", ")}`);
+
+  for (const [name] of originalByName) {
+    check(`scenario 3: snapshot still contains original file ${name}`, byName.has(name));
+  }
+
+  const appJsx = byName.get("src/App.jsx");
+  check("scenario 3: src/App.jsx is present", Boolean(appJsx));
+  if (appJsx) {
+    check(
+      "scenario 3: src/App.jsx now contains the dark-mode change",
+      /darkMode/.test(appJsx.code),
+      appJsx.code
+    );
+    check(
+      "scenario 3: src/App.jsx still owns the original todo handlers",
+      /handleAdd/.test(appJsx.code) && /handleToggle/.test(appJsx.code) && /handleRemove/.test(appJsx.code)
+    );
+  }
+
+  const originalTodoList = originalByName.get("src/components/TodoList.jsx");
+  const followupTodoList = byName.get("src/components/TodoList.jsx");
+  check("scenario 3: src/components/TodoList.jsx is present", Boolean(followupTodoList));
+  if (originalTodoList && followupTodoList) {
+    check(
+      "scenario 3: untouched src/components/TodoList.jsx is byte-identical to run 1's snapshot",
+      followupTodoList.code === originalTodoList.code
+    );
+  }
+
+  // Every other original file (main.jsx, index.css, package.json, index.html)
+  // should likewise be untouched by a run scoped to a single existing-file edit.
+  for (const [name, originalFile] of originalByName) {
+    if (name === "src/App.jsx" || name === "src/components/TodoList.jsx") continue;
+    const followupFile = byName.get(name);
+    check(
+      `scenario 3: untouched ${name} is byte-identical to run 1's snapshot`,
+      Boolean(followupFile) && followupFile.code === originalFile.code
+    );
+  }
+}
+
 try {
-  await main();
+  const scenarioOne = await main();
   await runScenarioTwo();
+  await runScenarioThree(scenarioOne);
 } catch (error) {
   console.error("[mock-run] Harness crashed:", error);
   process.exitCode = 1;

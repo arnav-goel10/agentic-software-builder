@@ -1,0 +1,10 @@
+{
+  "summary": "Added a darkMode toggle button to the App header; existing todo state and TodoList wiring are unchanged.",
+  "operations": [
+    {
+      "op": "upsert",
+      "path": "src/App.jsx",
+      "code": "import React, { useState } from \"react\";\nimport TodoList from \"./components/TodoList\";\n\nexport default function App() {\n  const [todos, setTodos] = useState([]);\n  const [darkMode, setDarkMode] = useState(false);\n\n  const handleAdd = (text) => {\n    const trimmed = text.trim();\n    if (!trimmed) return;\n    setTodos((prev) => [...prev, { id: Date.now(), text: trimmed, done: false }]);\n  };\n\n  const handleToggle = (id) => {\n    setTodos((prev) =>\n      prev.map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo))\n    );\n  };\n\n  const handleRemove = (id) => {\n    setTodos((prev) => prev.filter((todo) => todo.id !== id));\n  };\n\n  const toggleDarkMode = () => setDarkMode((prev) => !prev);\n\n  return (\n    <main\n      className={\n        darkMode\n          ? \"min-h-screen bg-slate-950 text-slate-100 p-8\"\n          : \"min-h-screen bg-slate-100 text-slate-900 p-8\"\n      }\n    >\n      <div className=\"mx-auto max-w-xl\">\n        <div className=\"flex items-center justify-between mb-6\">\n          <h1 className=\"text-3xl font-semibold\">Todo App</h1>\n          <button\n            type=\"button\"\n            onClick={toggleDarkMode}\n            className=\"rounded-full border border-current px-3 py-1 text-sm\"\n          >\n            {darkMode ? \"Light mode\" : \"Dark mode\"}\n          </button>\n        </div>\n        <TodoList\n          todos={todos}\n          onAdd={handleAdd}\n          onToggle={handleToggle}\n          onRemove={handleRemove}\n        />\n      </div>\n    </main>\n  );\n}\n"
+    }
+  ]
+}

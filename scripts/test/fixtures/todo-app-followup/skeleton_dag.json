@@ -1,0 +1,52 @@
+{
+  "summary": "Targeted edit: src/App.jsx gains a dark mode toggle in its header; no other files change.",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Add dark mode toggle to header",
+      "instructions": "Edit src/App.jsx in place to add a dark mode toggle button in the header that switches a darkMode state/class. Keep the existing todo state and TodoList wiring unchanged.",
+      "objectiveType": "direct_fix",
+      "dependsOn": [],
+      "taskWriteSet": ["src/App.jsx"]
+    }
+  ],
+  "fileContracts": [
+    {
+      "path": "src/App.jsx",
+      "purpose": "Entry component that owns todo list state, renders TodoList, and now also owns a dark mode toggle in its header.",
+      "imports": [
+        { "source": "react", "names": ["default", "useState"] },
+        { "source": "./components/TodoList", "names": ["default"] }
+      ],
+      "exports": [
+        {
+          "name": "default",
+          "kind": "default",
+          "signature": "() => JSX.Element",
+          "description": "App root component rendering the todo list UI with a dark mode toggle in the header."
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "path": "src/App.jsx",
+      "purpose": "Entry component that owns todo list state, renders TodoList, and now also owns a dark mode toggle in its header.",
+      "imports": [
+        { "source": "react", "names": ["default", "useState"] },
+        { "source": "./components/TodoList", "names": ["default"] }
+      ],
+      "exports": [
+        {
+          "name": "default",
+          "kind": "default",
+          "signature": "() => JSX.Element",
+          "description": "App root component rendering the todo list UI with a dark mode toggle in the header."
+        }
+      ],
+      "routeOwnership": "route:src/App.jsx",
+      "externalLibraries": ["react"],
+      "dependsOnPaths": []
+    }
+  ]
+}
