@@ -151,7 +151,7 @@ const MIN_RUN_HARD_TIMEOUT_MS = 30000;
 const DEFAULT_RUNTIME_GATE_TIMEOUT_MS = 120000;
 const MIN_RUNTIME_GATE_TIMEOUT_MS = 30000;
 const MAX_RUNTIME_GATE_TIMEOUT_MS = 15 * 60 * 1000;
-const DEFAULT_SKELETON_AUTOFIX_PASSES = 1;
+const DEFAULT_SKELETON_AUTOFIX_PASSES = 2;
 const DEFAULT_FIX_DAG_MAX_PASSES = 3;
 const DEFAULT_QA_FIX_PASSES = 1;
 
@@ -2501,6 +2501,79 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
       routeOwnedPaths: skeletonRouteOwnedPaths,
     });
     let appliedAutofixOps = 0;
+
+    // Contract-declared imports are fully mechanical: when a skeleton is
+    // missing an import its contract requires, synthesize the statement from
+    // the contract instead of spending a model pass on it.
+    if (skeletonIssues.some((issue) => issue.code === "skeleton.missing_import_source")) {
+      const SPECIAL_DEFAULT_NAMES: Record<string, string> = {
+        react: "React",
+        express: "express",
+        axios: "axios",
+        clsx: "clsx",
+      };
+      const defaultNameForSource = (source: string): string => {
+        const special = SPECIAL_DEFAULT_NAMES[source.toLowerCase()];
+        if (special) return special;
+        const base = source.split("/").pop() ?? source;
+        const cleaned = base.replace(/\.(jsx?|tsx?|mjs|cjs)$/i, "").replace(/[^A-Za-z0-9]+/g, " ");
+        const pascal = cleaned
+          .split(" ")
+          .filter(Boolean)
+          .map((part) => part[0].toUpperCase() + part.slice(1))
+          .join("");
+        return pascal || "Imported";
+      };
+      let injectedImports = 0;
+      const flaggedPaths = new Set(
+        skeletonIssues
+          .filter((issue) => issue.code === "skeleton.missing_import_source" && issue.file)
+          .map((issue) => normalizePath(issue.file as string))
+      );
+      workingFiles = workingFiles.map((file) => {
+        const filePath = normalizePath(file.name);
+        if (!flaggedPaths.has(filePath)) return file;
+        const contract = skeletonValidationContracts.find(
+          (candidate) => normalizePath(candidate.path) === filePath
+        );
+        if (!contract) return file;
+        const missingLines: string[] = [];
+        for (const imp of contract.imports) {
+          const sourcePattern = new RegExp(
+            `from\\s+["'\`]${imp.source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'\`]`
+          );
+          if (sourcePattern.test(file.code)) continue;
+          const named = imp.names.filter((name) => name !== "default" && name !== "*");
+          const wantsDefault = imp.names.includes("default");
+          const clauses: string[] = [];
+          if (wantsDefault) clauses.push(defaultNameForSource(imp.source));
+          if (named.length > 0) clauses.push(`{ ${named.join(", ")} }`);
+          if (clauses.length === 0) {
+            missingLines.push(`import "${imp.source}";`);
+          } else {
+            missingLines.push(`import ${clauses.join(", ")} from "${imp.source}";`);
+          }
+        }
+        if (missingLines.length === 0) return file;
+        injectedImports += missingLines.length;
+        return { ...file, code: `${missingLines.join("\n")}\n${file.code}` };
+      });
+      if (injectedImports > 0) {
+        skeletonIssues = validateSkeletonWorkingTree(workingFiles, skeletonValidationContracts, {
+          routeOwnedPaths: skeletonRouteOwnedPaths,
+        });
+        const injectionStep = createRunStep({
+          runId,
+          seq: seq++,
+          phase: "repair",
+          status: "complete",
+          title: "Deterministic import injection",
+          detail: `Injected ${injectedImports} contract-declared import(s); ${skeletonIssues.length} issue(s) remain`,
+          payload: { injectedImports, remainingIssues: skeletonIssues.length },
+        });
+        publishStep(run, injectionStep.id);
+      }
+    }
 
     for (
       let autofixPass = 1;
