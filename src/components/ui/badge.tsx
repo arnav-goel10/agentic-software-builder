@@ -5,17 +5,15 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium tracking-tight transition-colors",
     {
         variants: {
             variant: {
-                default: "bg-white/10 text-[#E6E6EB] border border-white/10",
-                success: "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20",
-                warning: "bg-amber-500/15 text-amber-400 border border-amber-500/20",
-                error: "bg-red-500/15 text-red-400 border border-red-500/20",
-                info: "bg-cyan-500/15 text-cyan-400 border border-cyan-500/20",
-                purple: "bg-purple-500/15 text-purple-400 border border-purple-500/20",
-                gradient: "bg-gradient-to-r from-[#6366F1]/20 to-[#A855F7]/20 text-purple-300 border border-purple-500/20",
+                default: "bg-[#f5f5f7] text-[#6e6e73] border border-black/[0.06]",
+                success: "bg-[#1a7f37]/10 text-[#1a7f37] border border-[#1a7f37]/15",
+                warning: "bg-[#9a6700]/10 text-[#9a6700] border border-[#9a6700]/15",
+                error: "bg-[#d1242f]/10 text-[#d1242f] border border-[#d1242f]/15",
+                info: "bg-[#0071e3]/10 text-[#0071e3] border border-[#0071e3]/15",
             },
         },
         defaultVariants: {
@@ -35,11 +33,11 @@ function Badge({ className, variant, dot, pulse, children, ...props }: BadgeProp
     return (
         <div className={cn(badgeVariants({ variant }), className)} {...props}>
             {dot && (
-                <span className="relative flex h-2 w-2">
+                <span className="relative flex h-1.5 w-1.5">
                     {pulse && (
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-75" />
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-60" />
                     )}
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-current" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
                 </span>
             )}
             {children}

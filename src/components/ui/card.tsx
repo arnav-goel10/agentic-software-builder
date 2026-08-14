@@ -5,23 +5,22 @@ import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
-    variant?: "default" | "glass" | "elevated" | "gradient-border";
+    variant?: "default" | "elevated";
     hoverable?: boolean;
 }
 
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
     ({ className, variant = "default", hoverable = false, children, ...props }, ref) => {
         const variants = {
-            default: "bg-[#111218] border border-white/6",
-            glass: "glass",
-            elevated: "bg-[#16171D] border border-white/10 shadow-lg",
-            "gradient-border": "gradient-border",
+            default: "bg-white border border-black/[0.08] shadow-[0_1px_2px_rgba(0,0,0,0.04)]",
+            elevated:
+                "bg-white border border-black/[0.08] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.14)]",
         };
 
         const baseStyles = cn(
-            "rounded-xl p-5 transition-all duration-300",
+            "rounded-[14px] p-5 transition-all duration-200 ease-out",
             variants[variant],
-            hoverable && "hover:translate-y-[-2px] hover:shadow-xl hover:border-white/15 cursor-pointer",
+            hoverable && "hover:border-black/[0.14] cursor-pointer",
             className
         );
 
@@ -30,8 +29,8 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
                 <motion.div
                     ref={ref}
                     className={baseStyles}
-                    whileHover={{ y: -4, boxShadow: "0 16px 48px rgba(0, 0, 0, 0.4)" }}
-                    transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    whileHover={{ y: -2, boxShadow: "0 4px 12px rgba(0,0,0,0.06), 0 16px 32px -16px rgba(0,0,0,0.16)" }}
+                    transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
                 >
                     {children}
                 </motion.div>
@@ -65,7 +64,7 @@ const CardTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
     <h3
         ref={ref}
-        className={cn("text-lg font-semibold text-[#E6E6EB] tracking-tight", className)}
+        className={cn("text-[17px] font-semibold text-[#1d1d1f] tracking-tight", className)}
         {...props}
     />
 ));
@@ -77,7 +76,7 @@ const CardDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
     <p
         ref={ref}
-        className={cn("text-sm text-[#9CA3AF]", className)}
+        className={cn("text-sm text-[#6e6e73]", className)}
         {...props}
     />
 ));
@@ -97,7 +96,7 @@ const CardFooter = React.forwardRef<
 >(({ className, ...props }, ref) => (
     <div
         ref={ref}
-        className={cn("flex items-center pt-4 border-t border-white/6", className)}
+        className={cn("flex items-center pt-4 border-t border-black/[0.06]", className)}
         {...props}
     />
 ));

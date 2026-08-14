@@ -9,7 +9,7 @@ interface SkeletonProps extends React.HTMLAttributes<HTMLDivElement> {
 
 function Skeleton({ className, variant = "default", ...props }: SkeletonProps) {
     const variants = {
-        default: "rounded-lg",
+        default: "rounded-[10px]",
         circular: "rounded-full",
         text: "rounded-md h-4",
     };
@@ -29,7 +29,7 @@ function Skeleton({ className, variant = "default", ...props }: SkeletonProps) {
 // Skeleton group for cards
 function SkeletonCard({ className }: { className?: string }) {
     return (
-        <div className={cn("space-y-4 p-5 bg-[#111218] rounded-xl border border-white/6", className)}>
+        <div className={cn("space-y-4 p-5 bg-white rounded-[14px] border border-black/[0.08]", className)}>
             <Skeleton className="h-32 w-full" />
             <div className="space-y-2">
                 <Skeleton variant="text" className="w-3/4" />
