@@ -810,11 +810,27 @@ export function normalizePath(rawName: string): string {
   return compacted;
 }
 
+// Files under server/ are the express-fullstack profile's Node-side code
+// (server/app.js, server/routes/*, server/db.js, plus the engine-owned
+// server/index.js bootstrap). They run in Node, never the browser, so the
+// browser-compatibility/PGlite-in-the-browser heuristics below must not
+// evaluate them the same way they evaluate src/** — a "server-only import"
+// there is simply correct, not a bug.
+export function isServerOwnedPath(fileName: string): boolean {
+  try {
+    return /^server\//.test(normalizePath(fileName));
+  } catch {
+    return false;
+  }
+}
+
 function classifyImports(files: GeneratedFile[]): ValidationResult["importClassification"] {
   const serverOnly = new Set<string>();
   const browserCompatible = new Set<string>();
 
   for (const file of files) {
+    if (isServerOwnedPath(file.name)) continue;
+
     let match: RegExpExecArray | null;
     IMPORT_SPECIFIER_PATTERN.lastIndex = 0;
     while ((match = IMPORT_SPECIFIER_PATTERN.exec(file.code)) !== null) {
@@ -1071,7 +1087,13 @@ function validateTailwindCssSemantics(files: GeneratedFile[]): ValidationIssue[]
 function validatePgliteResilience(files: GeneratedFile[]): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const scriptFiles = files.filter((file) => /\.(js|jsx|ts|tsx)$/.test(file.name));
-  const usesPglite = scriptFiles.some(
+  // Vite only bundles the frontend, so the optimizeDeps guard below is only
+  // meaningful when PGlite is actually imported from frontend code. In the
+  // express-fullstack profile, PGlite runs server-side (server/db.js) behind
+  // plain Node, never touching Vite's dependency prebundler, so server-only
+  // PGlite usage must not demand a frontend Vite config change.
+  const frontendScriptFiles = scriptFiles.filter((file) => !isServerOwnedPath(file.name));
+  const usesPglite = frontendScriptFiles.some(
     (file) =>
       /@electric-sql\/pglite/.test(file.code) ||
       PGLITE_INIT_CALL_PATTERN.test(file.code) ||
@@ -1795,6 +1817,10 @@ async function validateReactHookRules(files: GeneratedFile[]): Promise<Validatio
 
   for (const file of files) {
     if (!looksLikeCodeFile(file.name)) continue;
+    // React Hook rules are a frontend-only concept; server/** runs in Node
+    // and legitimately calls Express APIs like `router.use(...)` inside
+    // conditionals/loops, which this heuristic must not mistake for a hook.
+    if (isServerOwnedPath(file.name)) continue;
 
     if (!ts) {
       if (fallbackHookInBlockPattern.test(file.code)) {
@@ -2736,6 +2762,11 @@ function buildRuntimeDiagnostics(issues: ValidationIssue[]): string[] {
       case "router.multiple_providers":
         push(`[runtime] ${location}${issue.message}`);
         break;
+      case "server.app_not_exported":
+      case "server.react_import":
+      case "server.browser_global_reference":
+        push(`[server] ${location}${issue.message}`);
+        break;
       case "react_query.on_mutate_unsafe_previous_data":
       case "react_query.cache_shape_mismatch":
       case "react_query.missing_provider":
@@ -2782,6 +2813,60 @@ function validateEntryPointSemantics(files: GeneratedFile[]): ValidationIssue[] 
       message:
         "Conflicting entry strategy: both App.* and src/App.* exist. Keep a single app entry strategy and remove the extra scaffold file.",
     });
+  }
+
+  return issues;
+}
+
+const SERVER_APP_EXPORT_PATTERN =
+  /\bexport\s+(?:const|let|var)\s+app\b|\bexport\s*\{[^}]*\bapp\b[^}]*\}|\bexport\s+default\s+app\b|\bexport\s+default\s+function\s+app\b/;
+const SERVER_REACT_IMPORT_PATTERN =
+  /\bfrom\s*["'`]react(?:-dom)?(?:\/[^"'`]*)?["'`]|require\(\s*["'`]react(?:-dom)?(?:\/[^"'`]*)?["'`]\s*\)/;
+const SERVER_BROWSER_GLOBAL_PATTERN = /\b(?:window|document)\s*\./;
+
+// express-fullstack's server/** tree is Node-only. These mirror the spirit
+// of the browser-side checks above (React Hook rules, window/document
+// guards, PGlite-in-the-browser heuristics) but for the opposite
+// environment: server/app.js must actually export the Express app the
+// engine-owned server/index.js bootstrap imports, and nothing under
+// server/** should assume a DOM. Content-driven (keys off the presence of a
+// server/ directory) rather than threading stack profile through the
+// validator pipeline, so vite-spa projects — which never have a server/
+// directory — are entirely unaffected.
+function validateServerModuleSemantics(files: GeneratedFile[]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const serverFiles = files.filter(
+    (file) => isServerOwnedPath(file.name) && looksLikeCodeFile(file.name)
+  );
+  if (serverFiles.length === 0) {
+    return issues;
+  }
+
+  const appFile = serverFiles.find((file) => normalizePath(file.name) === "server/app.js");
+  if (appFile && !SERVER_APP_EXPORT_PATTERN.test(appFile.code)) {
+    issues.push({
+      code: "server.app_not_exported",
+      file: "server/app.js",
+      message:
+        'server/app.js must export the Express app (e.g. "export const app = express();" or "export default app") so server/index.js can import and serve it.',
+    });
+  }
+
+  for (const file of serverFiles) {
+    if (SERVER_REACT_IMPORT_PATTERN.test(file.code)) {
+      issues.push({
+        code: "server.react_import",
+        file: file.name,
+        message: "Server files run in Node, not the browser — they must not import react/react-dom.",
+      });
+    }
+    if (SERVER_BROWSER_GLOBAL_PATTERN.test(file.code)) {
+      issues.push({
+        code: "server.browser_global_reference",
+        file: file.name,
+        message: "Server files must not reference window/document; these browser globals do not exist in Node.",
+      });
+    }
   }
 
   return issues;
@@ -4598,6 +4683,9 @@ export async function validateFinalWorkingTree(files: GeneratedFile[]): Promise<
 
   const entryPointIssues = validateEntryPointSemantics(normalized);
   issues.push(...entryPointIssues);
+
+  const serverModuleIssues = validateServerModuleSemantics(normalized);
+  issues.push(...serverModuleIssues);
 
   const reactThreeIssues = validateReactThreeFiberSemantics(normalized);
   issues.push(...reactThreeIssues);
