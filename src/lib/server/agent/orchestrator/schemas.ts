@@ -62,6 +62,21 @@ export const PLAN_SCHEMA = {
 
 export const PLAN_OUTLINE_SCHEMA = PLAN_SCHEMA;
 
+export const MODE_DECISION_SCHEMA = {
+    type: "object",
+    additionalProperties: true,
+    required: ["mode", "scope", "reasoning", "targetPaths"],
+    properties: {
+        mode: { type: "string", enum: ["feature_mode", "followup_fix_mode"] },
+        scope: { type: "string", enum: ["full_rebuild", "targeted_edit"] },
+        reasoning: { type: "string", minLength: 1 },
+        targetPaths: {
+            type: "array",
+            items: { type: "string" },
+        },
+    },
+} as const;
+
 // ─── Skeleton-First Architecture Schemas ────────────────────────
 
 const FILE_CONTRACT_SCHEMA = {

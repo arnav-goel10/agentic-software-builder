@@ -1,12 +1,13 @@
 // orchestrator/generators.ts — All LLM generation functions
 import type { GeneratedFile } from "@/lib/server/types";
-import type { ExecutionMode } from "@/lib/server/types";
+import type { ExecutionMode, ExecutionScope } from "@/lib/server/types";
 import type {
     ConfiguredModelProvider,
     ProviderCallResult,
 } from "@/lib/server/agent/model-provider";
 import { callStructuredJsonWithFallback } from "@/lib/server/agent/model-provider";
 import { normalizePath } from "@/lib/server/agent/validation";
+import type { FileOperation } from "@/lib/server/agent/validation";
 import type {
     SpecResponse,
     PlanResponse,
@@ -23,6 +24,7 @@ import type {
     SkeletonDagNode,
     FixDagResponse,
     FixDagTask,
+    ModeDecisionResponse,
 } from "./types";
 import {
     SPEC_SCHEMA,
@@ -35,6 +37,7 @@ import {
     SKELETON_REGION_FILL_SCHEMA,
     SKELETON_AUTOFIX_SCHEMA,
     FIX_DAG_SCHEMA,
+    MODE_DECISION_SCHEMA,
 } from "./schemas";
 import { BASE_AGENT_SYSTEM_PROMPT } from "./prompts";
 import type { TemplateDiversitySeed } from "./prompts";
@@ -58,6 +61,7 @@ import {
     normalizePlanOutlineResponse,
     normalizeSkeletonSpecDagResponse,
     normalizeFixDagResponse,
+    normalizeModeDecisionResponse,
 } from "./normalizers";
 import {
     ARCHITECT_SYSTEM_PROMPT,
@@ -67,6 +71,7 @@ import {
     REPAIR_SYSTEM_PROMPT,
     QA_SYSTEM_PROMPT,
     FINALIZE_SYSTEM_PROMPT,
+    FILE_EDIT_SYSTEM_PROMPT,
 } from "./prompts-specialized";
 import {
     FRONTEND_DESIGN_SKILL_PROMPT,
@@ -280,6 +285,59 @@ async function callStructuredJson<T>(input: {
         mockFixtureKey: input.mockFixtureKey,
         mockFixtureTarget: input.mockFixtureTarget,
     });
+}
+
+const MODE_DECISION_SYSTEM_PROMPT = `You are Dexter's run-mode classifier.
+
+Role:
+- Decide whether the next run against an EXISTING generated project is a fresh feature build or a small follow-up fix/change.
+- Decide whether the DAG-building phase should regenerate the whole app broadly, or make a narrowly targeted edit that leaves untouched files exactly as-is.
+
+Definitions:
+- mode "feature_mode": the request asks for a substantial new feature, page, or capability.
+- mode "followup_fix_mode": the request is a bug fix, small tweak, or narrow adjustment to what already exists.
+- scope "full_rebuild": treat the whole app as in play; broad skeleton regeneration is appropriate.
+- scope "targeted_edit": only a small, identifiable set of existing files need to change; everything else must be left untouched.
+
+Guidance:
+- If the request only concerns a small, identifiable piece of existing UI/behavior (e.g. "add a dark mode toggle", "fix the button color", "the delete button doesn't work"), use scope "targeted_edit".
+- If the request asks for a new page/section/major feature that clearly requires new files and broad wiring, use scope "full_rebuild" even when mode is feature_mode.
+- targetPaths should list the existing or new file paths you believe the change touches, best-effort from the current file catalog; leave it empty if genuinely unsure.
+- Always return your best-guess decision. Never refuse to decide.`;
+
+/**
+ * Structured replacement for the old regex-only classifyExecutionMode
+ * heuristic. Only ever called when a prior snapshot exists (first-message
+ * runs skip this entirely and stay feature_mode/full_rebuild for free).
+ * Callers MUST catch failures and fall back to the heuristic — this
+ * function intentionally does not swallow errors itself so the caller can
+ * decide how to log/report the fallback.
+ */
+export async function generateModeDecision(input: {
+    providers: ConfiguredModelProvider[];
+    userPrompt: string;
+    threadContext: string;
+    priorRunContext: string;
+    files: GeneratedFile[];
+}): Promise<{ decision: ModeDecisionResponse; trace: ModelTrace }> {
+    const response = await callStructuredJson<ModeDecisionResponse>({
+        providers: input.providers,
+        system: [{ text: MODE_DECISION_SYSTEM_PROMPT, cache: true }],
+        schema: MODE_DECISION_SCHEMA,
+        userPrompt: [
+            "Classify this follow-up request against the existing project below.",
+            `User request:\n${input.userPrompt}`,
+            `Thread context:\n${input.threadContext || "(no prior context)"}`,
+            `Prior run context:\n${input.priorRunContext || "(none)"}`,
+            `Current file catalog:\n${buildFileCatalog(input.files)}`,
+        ].join("\n\n"),
+        mockFixtureKey: "mode",
+    });
+
+    return {
+        decision: normalizeModeDecisionResponse(response.data),
+        trace: toModelTrace(response),
+    };
 }
 
 export async function generateSpec(input: {
@@ -579,9 +637,28 @@ export async function generateSkeletonSpecDag(input: {
     planOutline: PlanOutlineResponse;
     diversitySeed?: TemplateDiversitySeed;
     executionMode?: ExecutionMode;
+    scope?: ExecutionScope;
+    targetPaths?: string[];
     onPartial?: (partial: Record<string, unknown>) => void;
 }): Promise<{ dag: SkeletonSpecDagResponse; trace: ModelTrace }> {
     const executionMode = input.executionMode ?? "feature_mode";
+    const scope = input.scope ?? "full_rebuild";
+    const targetedEditRules =
+        scope === "targeted_edit"
+            ? [
+                "TARGETED FOLLOW-UP EDIT MODE:",
+                "- This is a small follow-up change to an EXISTING project, not a rebuild.",
+                "- Unchanged existing files MUST NOT appear as nodes or file contracts in this DAG.",
+                "- Only include: (a) brand-new files this request requires you to create, and (b) EXISTING files whose content must actually change to satisfy the request.",
+                "- A node for an existing file is treated as a full in-place edit (not a from-scratch skeleton) — keep its contract close to what already exists (same purpose/exports) unless the request itself changes that.",
+                "- Do not add contracts/nodes for files unaffected by this request, even if they live in the same feature area.",
+                input.targetPaths && input.targetPaths.length > 0
+                    ? `- Likely target paths based on the request (advisory — verify against the current file catalog): ${input.targetPaths.join(", ")}`
+                    : "",
+            ]
+                .filter(Boolean)
+                .join("\n")
+            : "";
     const applyFrontendDesignSkill = shouldApplyFrontendDesignSkill({
         userPrompt: input.userPrompt,
         threadContext: input.threadContext,
@@ -618,6 +695,7 @@ Requirements:
             `User request:\n${input.userPrompt}`,
             `Thread context:\n${input.threadContext || "(no prior context)"}`,
             `Execution mode: ${executionMode}`,
+            targetedEditRules,
             `Implementation spec:\n${formatSpecForPrompt(input.spec)}`,
             `Plan outline:\n${JSON.stringify(input.planOutline, null, 2)}`,
             formatDiversitySeed(input.diversitySeed),
@@ -790,6 +868,96 @@ export async function generateSkeletonFile(input: {
             dependencyContracts: [],
         } satisfies SkeletonFile);
     return { skeleton, trace: batch.trace };
+}
+
+/**
+ * Edits ONE existing file in place for a targeted follow-up: the model sees
+ * the file's full current source (not a skeleton) and returns the complete
+ * updated file as a single upsert operation. Used instead of the
+ * skeleton->fill two-phase pipeline for DAG nodes whose path already exists
+ * in the working tree during a targeted-edit scope run, since those files
+ * were never authored with BEGIN_FILL/END_FILL regions for this request.
+ */
+export async function generateFileEdit(input: {
+    providers: ConfiguredModelProvider[];
+    node: SkeletonDagNode;
+    currentCode: string;
+    allContracts: FileContract[];
+    spec: SpecResponse;
+    userPrompt: string;
+    onPartial?: (partial: Record<string, unknown>) => void;
+}): Promise<OperationResult> {
+    const targetPath = normalizePath(input.node.path);
+    const ownContract =
+        input.allContracts.find((contract) => {
+            try {
+                return normalizePath(contract.path) === targetPath;
+            } catch {
+                return false;
+            }
+        }) ?? {
+            path: targetPath,
+            purpose: input.node.purpose,
+            imports: input.node.imports,
+            exports: input.node.exports,
+            ...(input.node.dbQueries ? { dbQueries: input.node.dbQueries } : {}),
+        };
+    const fileLanguageMode = buildFileLanguageManifest([targetPath]);
+    const contractLock = buildSkeletonContractLockManifest([ownContract]);
+
+    const response = await callStructuredJson<OperationResponse>({
+        providers: input.providers,
+        system: [
+            { text: FILE_EDIT_SYSTEM_PROMPT, cache: true },
+            {
+                text:
+                    "\nYou are in the FILE_EDIT phase (targeted follow-up). Return the complete, updated file content for exactly one existing file as a single 'upsert' operation.",
+            },
+        ],
+        schema: OPERATIONS_SCHEMA,
+        userPrompt: [
+            `File to edit: ${targetPath}`,
+            `Purpose: ${input.node.purpose}`,
+            `User request:\n${input.userPrompt}`,
+            `Spec summary:\n${input.spec.summary}`,
+            `File language mode:\n${fileLanguageMode}`,
+            `Per-file contract lock:\n${contractLock}`,
+            `Current file content:\n\`\`\`\n${input.currentCode}\n\`\`\``,
+            "STRICT RULES:",
+            `- Return exactly ONE operation: { "op": "upsert", "path": "${targetPath}", "code": <full file> }.`,
+            "- The code MUST be the complete file, not a diff or partial snippet.",
+            "- Preserve unrelated existing behavior, imports, and structure exactly; change only what the request requires.",
+            "- Do not rename or remove existing exports unless the request explicitly requires it.",
+            "- Match file language by extension; never add TypeScript syntax to .js/.jsx/.mjs/.cjs files.",
+            `- Do not modify package.json or any file other than ${targetPath}; this call may only edit this one file.`,
+        ].join("\n\n"),
+        onPartial: input.onPartial,
+        mockFixtureKey: "file_edit",
+        mockFixtureTarget: targetPath,
+    });
+
+    const normalized = normalizeOperationResponse(response.data);
+    const matchingOp = normalized.operations.find(
+        (operation): operation is Extract<FileOperation, { op: "upsert" }> => {
+            if (operation.op !== "upsert") return false;
+            try {
+                return normalizePath(operation.path) === targetPath;
+            } catch {
+                return false;
+            }
+        }
+    );
+    if (!matchingOp) {
+        throw new Error(`File edit response did not include an upsert operation for ${targetPath}`);
+    }
+
+    return {
+        summary: normalized.summary,
+        operations: [{ op: "upsert", path: targetPath, code: matchingOp.code }],
+        trace: toModelTrace(response),
+        contextFiles: [targetPath],
+        lengthFinishSignals: response.diagnostics?.lengthFinishSignals ?? 0,
+    };
 }
 
 export async function generateSkeletonAutofix(input: {

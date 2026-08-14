@@ -29,6 +29,8 @@ export type RunArtifactKind = "spec" | "qa" | "preview_risk" | "memory" | "metri
 
 export type ExecutionMode = "feature_mode" | "followup_fix_mode";
 
+export type ExecutionScope = "full_rebuild" | "targeted_edit";
+
 export type TaskObjectiveType = "direct_fix" | "supporting_refactor" | "verification";
 
 export type NoOpClassification = "already_satisfied" | "mis_scoped_task" | "model_noop";

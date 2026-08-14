@@ -23,7 +23,7 @@ import {
   toParsedRunStep,
   updateRunStep,
 } from "@/lib/server/repositories";
-import type { ExecutionMode, GeneratedFile, RunRow } from "@/lib/server/types";
+import type { ExecutionMode, ExecutionScope, GeneratedFile, RunRow } from "@/lib/server/types";
 import { publishRunEvent } from "@/lib/server/agent/event-bus";
 import {
   applyFileOperations,
@@ -92,9 +92,11 @@ import type { ThreadContextPack } from "./orchestrator/context";
 
 import {
   generateSpec,
+  generateModeDecision,
   generatePlanOutline,
   generateSkeletonSpecDag,
   generateSkeletonFile,
+  generateFileEdit,
   generateSkeletonAutofix,
   generateFillForSkeleton,
   generateFixDag,
@@ -114,6 +116,7 @@ import type {
   QaResult,
   FileContract,
   SkeletonFile,
+  SkeletonDagNode,
 } from "./orchestrator/types";
 import {
   ACCEPTANCE_GATE_MIN_SCORE,
@@ -370,7 +373,10 @@ function getRuntimeGateTimeoutMs(): number {
   );
 }
 
-function classifyExecutionMode(input: {
+// Kept as the deterministic fallback for resolveExecutionModeDecision below:
+// a model call can fail (timeout, provider outage, bad JSON after retries),
+// and classification must never be the reason a run fails.
+function classifyExecutionModeHeuristic(input: {
   userPrompt: string;
   threadContext: string;
   priorRunContext: string;
@@ -382,6 +388,64 @@ function classifyExecutionMode(input: {
     ) ||
     /\brun failed\b|\bquality gate failed\b/.test(signal);
   return looksLikeFollowup ? "followup_fix_mode" : "feature_mode";
+}
+
+type ExecutionModeDecisionResult = {
+  mode: ExecutionMode;
+  scope: ExecutionScope;
+  reasoning: string;
+  targetPaths: string[];
+  trace: ModelTrace | null;
+  classifiedViaModel: boolean;
+};
+
+/**
+ * Structured mode/scope classification for follow-up runs. Only meaningful
+ * once a prior snapshot exists — callers should skip invoking this entirely
+ * for first-message runs so greenfield builds never pay for a classification
+ * call. Never throws: a failed/malformed model call falls back to the old
+ * regex heuristic (scope always "full_rebuild" in that case, preserving
+ * today's behavior) so classification can never fail a run.
+ */
+async function resolveExecutionModeDecision(input: {
+  providers: ConfiguredModelProvider[];
+  userPrompt: string;
+  threadContext: string;
+  priorRunContext: string;
+  files: GeneratedFile[];
+}): Promise<ExecutionModeDecisionResult> {
+  try {
+    const result = await generateModeDecision({
+      providers: input.providers,
+      userPrompt: input.userPrompt,
+      threadContext: input.threadContext,
+      priorRunContext: input.priorRunContext,
+      files: input.files,
+    });
+    return {
+      mode: result.decision.mode,
+      scope: result.decision.scope,
+      reasoning: result.decision.reasoning,
+      targetPaths: result.decision.targetPaths,
+      trace: result.trace,
+      classifiedViaModel: true,
+    };
+  } catch (error) {
+    const heuristicMode = classifyExecutionModeHeuristic({
+      userPrompt: input.userPrompt,
+      threadContext: input.threadContext,
+      priorRunContext: input.priorRunContext,
+    });
+    const reason = error instanceof Error ? error.message : String(error ?? "unknown error");
+    return {
+      mode: heuristicMode,
+      scope: "full_rebuild",
+      reasoning: `Heuristic fallback (mode-decision call failed: ${reason})`,
+      targetPaths: [],
+      trace: null,
+      classifiedViaModel: false,
+    };
+  }
 }
 
 /**
@@ -1788,11 +1852,45 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     userPrompt: triggerMessage.content,
   });
   const threadContext = specContextPack.text;
-  const executionMode: ExecutionMode = classifyExecutionMode({
-    userPrompt: triggerMessage.content,
-    threadContext,
-    priorRunContext,
-  });
+
+  // ── Execution mode / scope classification ──
+  // First-message runs (no prior snapshot) always stay feature_mode /
+  // full_rebuild and never pay for a classification call. Follow-up runs
+  // get a structured model decision (cheapest phase: reuse "spec"
+  // providers), falling back to the old regex heuristic if that call fails.
+  const specProviders = resolvePhaseProviders("spec");
+  let executionMode: ExecutionMode = "feature_mode";
+  let executionScope: ExecutionScope = "full_rebuild";
+  let executionModeReasoning = "No prior snapshot; first run always builds from scratch.";
+  let executionModeTargetPaths: string[] = [];
+  if (hasExistingSnapshot) {
+    const modeDecision = await resolveExecutionModeDecision({
+      providers: specProviders,
+      userPrompt: triggerMessage.content,
+      threadContext,
+      priorRunContext,
+      files: workingFiles,
+    });
+    accumulateProviderDiagnostics(modeDecision.trace);
+    executionMode = modeDecision.mode;
+    executionScope = modeDecision.scope;
+    executionModeReasoning = modeDecision.reasoning;
+    executionModeTargetPaths = modeDecision.targetPaths;
+
+    createRunArtifact({
+      runId,
+      kind: "metrics",
+      title: "Execution mode decision",
+      content: {
+        executionMode,
+        executionScope,
+        reasoning: executionModeReasoning,
+        targetPaths: executionModeTargetPaths,
+        classifiedViaModel: modeDecision.classifiedViaModel,
+      },
+    });
+  }
+
   const runtimeGateTimeoutMs = getRuntimeGateTimeoutMs();
   const skeletonAutofixPasses = getSkeletonAutofixPasses();
   const fixDagMaxPasses = getFixDagMaxPasses();
@@ -1810,7 +1908,6 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   });
   publishStep(run, specStep.id);
 
-  const specProviders = resolvePhaseProviders("spec");
   const specResult = await withCorrectivePromptRetry("spec generation", (correctiveNote) =>
     generateSpec({
       providers: specProviders,
@@ -1867,6 +1964,9 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     payload: {
       spec,
       executionMode,
+      executionScope,
+      modeReasoning: executionModeReasoning,
+      modeTargetPaths: executionModeTargetPaths,
       retrievedContextStats: specContextPack.stats,
       starterTemplate: selectedStarterProfile
         ? {
@@ -1998,7 +2098,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     status: "running",
     title: "Skeleton DAG spec",
     detail: "Building file-level DAG with contracts",
-    payload: { executionMode },
+    payload: { executionMode, executionScope },
   });
   publishStep(run, skeletonDagStep.id);
 
@@ -2017,6 +2117,8 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
         planOutline,
         diversitySeed: selectedDiversitySeed ?? undefined,
         executionMode,
+        scope: executionScope,
+        targetPaths: executionModeTargetPaths,
         onPartial: (partial) => {
           publishRunEvent({
             type: "architect_progress",
@@ -2061,6 +2163,32 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     throw new Error("Skeleton DAG spec returned zero contracts/nodes");
   }
 
+  // Targeted-edit scope: split DAG nodes into brand-new files (still go
+  // through the normal skeleton -> fill pipeline below) and nodes whose path
+  // already exists in the working tree (edited in place further down via
+  // generateFileEdit, using their current content as the baseline instead of
+  // a from-scratch skeleton). Untouched existing files never appear in
+  // either list, so they pass through this run byte-identical.
+  const targetedEditActive = executionScope === "targeted_edit";
+  const existingWorkingFilePaths = new Set(
+    workingFiles.map((file) => normalizePath(file.name))
+  );
+  const existingFileNodes: SkeletonDagNode[] = targetedEditActive
+    ? dagNodes.filter((node) => existingWorkingFilePaths.has(normalizePath(node.path)))
+    : [];
+  const newFileNodes: SkeletonDagNode[] = targetedEditActive
+    ? dagNodes.filter((node) => !existingWorkingFilePaths.has(normalizePath(node.path)))
+    : dagNodes;
+  // Existing-file-edit nodes are never run through skeleton generation, so
+  // they won't carry BEGIN_FILL markers — exclude their contracts from
+  // skeleton-phase contract-conformance validation below (final validation
+  // still covers them once they're filled in).
+  const skeletonValidationContracts = targetedEditActive
+    ? allFileContracts.filter(
+        (contract) => !existingWorkingFilePaths.has(normalizePath(contract.path))
+      )
+    : allFileContracts;
+
   const skeletonDagTelemetry = getTraceTelemetry(
     "architect",
     skeletonDagProviders,
@@ -2074,6 +2202,8 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
       summary: skeletonDag.summary,
       tasks: skeletonDag.tasks,
       nodeCount: dagNodes.length,
+      newFileNodeCount: newFileNodes.length,
+      existingFileNodeCount: existingFileNodes.length,
       fileContractCount: allFileContracts.length,
       dbSchema: skeletonDag.dbSchema ?? null,
       model: skeletonDagResult.trace,
@@ -2108,9 +2238,9 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     phase: "scaffold",
     status: "running",
     title: "Generate skeleton files",
-    detail: `Generating ${dagNodes.length} skeleton files by DAG tiers`,
+    detail: `Generating ${newFileNodes.length} skeleton files by DAG tiers`,
     payload: {
-      nodeCount: dagNodes.length,
+      nodeCount: newFileNodes.length,
       executionMode,
     },
   });
@@ -2118,7 +2248,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
 
   const scaffoldProviders = resolvePhaseProviders("scaffold");
   const nodeTiers = buildDagTiers(
-    dagNodes.map((node) => ({
+    newFileNodes.map((node) => ({
       id: normalizePath(node.path),
       dependsOn: node.dependsOnPaths.map((depPath) => normalizePath(depPath)),
       node,
@@ -2256,7 +2386,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     });
     publishStep(run, skeletonValidationStep.id);
   } else {
-    let skeletonIssues = validateSkeletonWorkingTree(workingFiles, allFileContracts, {
+    let skeletonIssues = validateSkeletonWorkingTree(workingFiles, skeletonValidationContracts, {
       routeOwnedPaths: skeletonRouteOwnedPaths,
     });
     let appliedAutofixOps = 0;
@@ -2308,7 +2438,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
         diagnostics.totalDeletes += counts.deletes;
       }
 
-      skeletonIssues = validateSkeletonWorkingTree(workingFiles, allFileContracts, {
+      skeletonIssues = validateSkeletonWorkingTree(workingFiles, skeletonValidationContracts, {
         routeOwnedPaths: skeletonRouteOwnedPaths,
       });
 
@@ -2775,6 +2905,137 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
       providerLengthFallback: lengthFallbackProviders.map((provider) => provider.model),
     },
   });
+
+  // ── Existing-file Edits (targeted follow-up scope) ──
+  // Runs after new-file skeleton+fill so an edit can reference freshly
+  // created sibling files. Each node here already exists in workingFiles;
+  // its current content is the baseline and the model returns the whole
+  // updated file (no skeleton, no fill regions — see generateFileEdit).
+  if (existingFileNodes.length > 0) {
+    if (signal?.aborted) throw new Error("Run cancelled");
+    run = updateRunAndReload(runId, "executing");
+
+    const fileEditStep = createRunStep({
+      runId,
+      seq: seq++,
+      phase: "coder",
+      status: "running",
+      title: "Edit existing files for follow-up",
+      detail: `Editing ${existingFileNodes.length} existing file(s) in place`,
+      payload: {
+        targetPaths: existingFileNodes.map((node) => normalizePath(node.path)),
+        executionMode,
+        executionScope,
+      },
+    });
+    publishStep(run, fileEditStep.id);
+
+    const fileEditProviders = resolvePhaseProviders("coder");
+    const fileEditSettled = await mapSettledWithConcurrency(
+      existingFileNodes,
+      fillConcurrencyLimit,
+      async (node) => {
+        const nodePath = normalizePath(node.path);
+        const currentFile = workingFiles.find(
+          (file) => normalizePath(file.name) === nodePath
+        );
+        if (!currentFile) {
+          throw new Error(`[${nodePath}] Existing-file edit target not found in working tree`);
+        }
+        const result = await generateFileEdit({
+          providers: fileEditProviders,
+          node,
+          currentCode: currentFile.code,
+          allContracts: allFileContracts,
+          spec,
+          userPrompt: triggerMessage.content,
+          onPartial: (partial) => {
+            if (!partial.operations) return;
+            publishRunEvent({
+              type: "coder_progress",
+              payload: {
+                runId,
+                projectId: run.project_id,
+                timestamp: Date.now(),
+                taskId: `file-edit-${nodePath}`,
+                operations: partial.operations as unknown as FileOperation[],
+              },
+            });
+          },
+        });
+        return { path: nodePath, result };
+      }
+    );
+
+    const fileEditFailures: Array<{ path: string; message: string }> = [];
+    let fileEditOps: FileOperation[] = [];
+    for (const settled of fileEditSettled) {
+      if (settled.status === "fulfilled") {
+        accumulateProviderDiagnostics(settled.value.result.trace);
+        fileEditOps = fileEditOps.concat(settled.value.result.operations);
+        continue;
+      }
+      const rawMessage =
+        settled.reason instanceof Error
+          ? settled.reason.message
+          : String(settled.reason ?? "Existing-file edit failed");
+      const pathMatch = rawMessage.match(/^\[([^\]]+)\]\s*(.*)$/);
+      fileEditFailures.push({
+        path: pathMatch?.[1] ?? "unknown",
+        message: pathMatch?.[2] ?? rawMessage,
+      });
+    }
+
+    if (fileEditFailures.length > 0) {
+      updateRunStep({
+        stepId: fileEditStep.id,
+        status: "error",
+        detail: `Existing-file edit failed for ${fileEditFailures.length} file(s)`,
+        payload: { failures: fileEditFailures },
+      });
+      publishStep(run, fileEditStep.id);
+      throw new Error(
+        `Existing-file edit failed for ${fileEditFailures.length} file(s): ${fileEditFailures
+          .slice(0, 3)
+          .map((failure) => `${failure.path}: ${failure.message}`)
+          .join(" | ")}`
+      );
+    }
+
+    // Routed through the same engine-manifest apply path as every other
+    // phase, so stripPackageManifestOperations, per-op isolation, and the
+    // downstream validation/fix-DAG gates all still apply unchanged.
+    const fileEditApply = applyOperationsWithEngineManifest(workingFiles, fileEditOps, {
+      phase: "existing_file_edit",
+    });
+    workingFiles = fileEditApply.files;
+    const fileEditCounts = countOperationKinds(fileEditApply.appliedOperations);
+    diagnostics.totalOperations += fileEditApply.appliedOperations.length;
+    diagnostics.totalUpserts += fileEditCounts.upserts;
+    diagnostics.totalDeletes += fileEditCounts.deletes;
+    diagnostics.tasksCompleted += existingFileNodes.length;
+
+    updateRunStep({
+      stepId: fileEditStep.id,
+      status: "complete",
+      detail: `Edited ${existingFileNodes.length} existing file(s) with ${fileEditApply.appliedOperations.length} operation(s)`,
+      payload: {
+        editedPaths: existingFileNodes.map((node) => normalizePath(node.path)),
+        operationCount: fileEditApply.appliedOperations.length,
+      },
+    });
+    publishStep(run, fileEditStep.id);
+
+    createRunArtifact({
+      runId,
+      kind: "metrics",
+      title: "Existing-file edits",
+      content: {
+        editedPaths: existingFileNodes.map((node) => normalizePath(node.path)),
+        operationCount: fileEditApply.appliedOperations.length,
+      },
+    });
+  }
 
   // ── Post-fill Validation + Runtime Gate ──
   if (signal?.aborted) throw new Error("Run cancelled");
@@ -3443,6 +3704,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     title: "Run metrics",
     content: {
       executionMode,
+      executionScope,
       diagnostics,
       fileCount: workingFiles.length,
       snapshotId: snapshot.id,

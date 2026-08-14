@@ -2,6 +2,7 @@
 import type { GeneratedFile } from "@/lib/server/types";
 import type {
     ExecutionMode,
+    ExecutionScope,
     NoOpClassification,
     TaskObjectiveType,
 } from "@/lib/server/types";
@@ -89,6 +90,15 @@ export interface SkeletonSpecDagResponse {
     fileContracts: FileContract[];
     nodes: SkeletonDagNode[];
     dbSchema?: string;
+}
+
+/** Structured follow-up mode/scope classification (replaces the regex heuristic). */
+export interface ModeDecisionResponse {
+    mode: ExecutionMode;
+    scope: ExecutionScope;
+    reasoning: string;
+    /** Advisory file paths the model believes the change touches. */
+    targetPaths: string[];
 }
 
 export interface FixDagTask {

@@ -16,12 +16,13 @@ import type {
     SkeletonDagNode,
     FixDagTask,
     FixDagResponse,
+    ModeDecisionResponse,
 } from "./types";
 import type { FileOperation } from "@/lib/server/agent/validation";
 import { normalizePath } from "@/lib/server/agent/validation";
 import { isEngineOwnedConfigPath } from "@/lib/server/agent/package-manifest";
 import { MAX_PLAN_TASKS } from "./prompts";
-import type { ExecutionMode, TaskObjectiveType } from "@/lib/server/types";
+import type { ExecutionMode, ExecutionScope, TaskObjectiveType } from "@/lib/server/types";
 
 const JSON_MANIFEST_TARGET_PATH_PATTERN = /\.json$/i;
 
@@ -775,6 +776,33 @@ export function normalizePlanOutlineResponse(
     options?: { minTasks?: number; maxTasks?: number; executionMode?: ExecutionMode }
 ): PlanOutlineResponse {
     return normalizePlanResponse(candidate, fallbackPrompt, options);
+}
+
+export function normalizeModeDecisionResponse(candidate: unknown): ModeDecisionResponse {
+    const payload = candidate as Partial<ModeDecisionResponse>;
+    const mode: ExecutionMode =
+        payload.mode === "followup_fix_mode" ? "followup_fix_mode" : "feature_mode";
+    const scope: ExecutionScope =
+        payload.scope === "targeted_edit" ? "targeted_edit" : "full_rebuild";
+    const reasoning =
+        typeof payload.reasoning === "string" && payload.reasoning.trim().length > 0
+            ? payload.reasoning.trim()
+            : "(no reasoning provided)";
+    const targetPaths = Array.isArray(payload.targetPaths)
+        ? payload.targetPaths
+            .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+            .filter(Boolean)
+            .map((entry) => {
+                try {
+                    return normalizePath(entry);
+                } catch {
+                    return null;
+                }
+            })
+            .filter((entry): entry is string => Boolean(entry))
+        : [];
+
+    return { mode, scope, reasoning, targetPaths };
 }
 
 function inferRouteOwnership(path: string): string | undefined {
