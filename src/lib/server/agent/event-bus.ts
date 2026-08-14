@@ -3,19 +3,11 @@ import type { ParsedRunStep, RunRow } from "@/lib/server/types";
 export type RunEventType =
   | "run_started"
   | "run_snapshot"
-  | "run_heartbeat"
   | "step"
   | "spec_progress"
   | "architect_progress"
   | "qa_progress"
-  | "coder_started"
   | "coder_progress"
-  | "coder_completed"
-  | "coder_deferred"
-  | "coder_noop_classified"
-  | "validation_failed"
-  | "repair_started"
-  | "context_compacted"
   | "memory_cards_updated"
   | "phase_timeout"
   | "preview_ready"
@@ -44,8 +36,6 @@ export type RunEventPayload = {
   reasoningEnabled?: boolean;
   phaseTimeoutMs?: number;
   executionMode?: string;
-  taskObjectiveType?: string;
-  noOpClassification?: string;
   memoryCardIds?: string[];
   retrievedContextStats?: Record<string, unknown>;
   changedFiles?: {

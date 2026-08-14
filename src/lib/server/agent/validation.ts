@@ -635,7 +635,6 @@ const CROSS_ORIGIN_FETCH_PATTERN =
   /\bfetch\s*\(\s*["'`](https?:\/\/[^"'`]+)["'`]/gi;
 const WEBSOCKET_PATTERN = /\bnew\s+WebSocket\s*\(/i;
 const FIREBASE_AUTH_IMPORT_PATTERN = /firebase\/auth/i;
-const COINGECKO_PATTERN = /api\.coingecko\.com/i;
 const IMPORT_SPECIFIER_PATTERN =
   /import\s+[^'"`]*?from\s*["'`]([^"'`]+)["'`]|import\s*\(\s*["'`]([^"'`]+)["'`]\s*\)|require\(\s*["'`]([^"'`]+)["'`]\s*\)/g;
 const POSTCSS_CONFIG_FILE_PATTERN = /^postcss\.config\.(js|ts|mjs|cjs)$/;
@@ -695,8 +694,11 @@ const PGLITE_QUERY_OBJECT_VALUES_TEXT_PATTERN =
   /\.query\s*\(\s*{\s*values\s*:\s*([\s\S]*?)\s*,\s*text\s*:\s*([\s\S]*?)\s*,?\s*}\s*\)/g;
 const PGLITE_QUERY_OBJECT_TEXT_ONLY_PATTERN =
   /\.query\s*\(\s*{\s*text\s*:\s*([\s\S]*?)\s*,?\s*}\s*\)/g;
-const SQL_HOLDINGS_UPDATE_CALL_PATTERN =
-  /\b(?:db|database|conn|connection)\s*\.\s*(?:query|exec|run|execute)\s*\(\s*(["'`])\s*UPDATE\s+holdings[\s\S]{0,260}?WHERE[\s\S]{0,120}?id\s*=\s*\?\s*\1\s*,\s*\[\s*([A-Za-z_$][\w$.]*)\s*,\s*([A-Za-z_$][\w$.]*)\s*\]\s*\)/gi;
+// Generic (not table-specific) heuristic: a parameterized `UPDATE <table> ...
+// WHERE id = ?` call whose bind-array looks like [id, value] instead of the
+// [value, id] order the placeholders imply.
+const SQL_UPDATE_ID_VALUE_PARAM_ORDER_PATTERN =
+  /\b(?:db|database|conn|connection)\s*\.\s*(?:query|exec|run|execute)\s*\(\s*(["'`])\s*UPDATE\s+([A-Za-z_][\w$]*)[\s\S]{0,260}?WHERE[\s\S]{0,120}?id\s*=\s*\?\s*\1\s*,\s*\[\s*([A-Za-z_$][\w$.]*)\s*,\s*([A-Za-z_$][\w$.]*)\s*\]\s*\)/gi;
 const QUERY_RESULT_FIELDS = new Set([
   "data",
   "error",
@@ -1515,11 +1517,6 @@ export function analyzePreviewRisk(input: {
   if (fetchUrls.length > 0) {
     score += 18;
     reasons.push("Performs direct cross-origin fetches that can hit CORS/rate-limit restrictions in preview.");
-  }
-
-  if (fetchUrls.some((url) => COINGECKO_PATTERN.test(url))) {
-    score += 12;
-    reasons.push("Calls CoinGecko directly; this frequently fails due to CORS or rate limits in browser preview.");
   }
 
   if (input.importClassification.serverOnlyImports.length > 0) {
@@ -2679,11 +2676,12 @@ function validateSqlUpdateParamOrder(files: GeneratedFile[]): ValidationIssue[] 
       continue;
     }
 
-    SQL_HOLDINGS_UPDATE_CALL_PATTERN.lastIndex = 0;
+    SQL_UPDATE_ID_VALUE_PARAM_ORDER_PATTERN.lastIndex = 0;
     let match: RegExpExecArray | null;
-    while ((match = SQL_HOLDINGS_UPDATE_CALL_PATTERN.exec(file.code)) !== null) {
-      const firstParam = (match[2] ?? "").trim();
-      const secondParam = (match[3] ?? "").trim();
+    while ((match = SQL_UPDATE_ID_VALUE_PARAM_ORDER_PATTERN.exec(file.code)) !== null) {
+      const table = (match[2] ?? "").trim() || "table";
+      const firstParam = (match[3] ?? "").trim();
+      const secondParam = (match[4] ?? "").trim();
       const firstLower = firstParam.toLowerCase();
       const secondLower = secondParam.toLowerCase();
       const firstLooksId = /(^|[._])id$|(^|[._])holdingid$|(^|[._])assetid$/.test(firstLower) || /\bid\b/.test(firstLower);
@@ -2698,7 +2696,7 @@ function validateSqlUpdateParamOrder(files: GeneratedFile[]): ValidationIssue[] 
         code: "sql.update_param_order_likely_wrong",
         file: file.name,
         message:
-          `Likely SQL parameter order mismatch: UPDATE holdings expects value first and id second, but found [${firstParam}, ${secondParam}].`,
+          `Likely SQL parameter order mismatch: UPDATE ${table} expects value first and id second, but found [${firstParam}, ${secondParam}].`,
       });
       break;
     }
@@ -3841,10 +3839,10 @@ function normalizeReactQueryPreviousDataGuards(code: string): string {
 }
 
 function normalizeSqlUpdateParamOrder(code: string): string {
-  SQL_HOLDINGS_UPDATE_CALL_PATTERN.lastIndex = 0;
+  SQL_UPDATE_ID_VALUE_PARAM_ORDER_PATTERN.lastIndex = 0;
   return code.replace(
-    SQL_HOLDINGS_UPDATE_CALL_PATTERN,
-    (full, quote: string, firstParamRaw: string, secondParamRaw: string) => {
+    SQL_UPDATE_ID_VALUE_PARAM_ORDER_PATTERN,
+    (full, quote: string, table: string, firstParamRaw: string, secondParamRaw: string) => {
       const firstParam = (firstParamRaw ?? "").trim();
       const secondParam = (secondParamRaw ?? "").trim();
       const firstLower = firstParam.toLowerCase();
