@@ -949,6 +949,8 @@ export function summarizeTreeChanges(
 export function formatSpecForPrompt(spec: SpecResponse): string {
     return [
         `Spec summary: ${spec.summary}`,
+        `Stack profile: ${spec.stackProfile} (${spec.stackProfileReasoning})`,
+        `Design language: ${spec.designLanguage} (${spec.designLanguageReasoning})`,
         `Requirements:\n${spec.requirements.map((item) => `- ${item}`).join("\n")}`,
         `Acceptance criteria:\n${spec.acceptanceCriteria.map((item) => `- ${item}`).join("\n")}`,
         spec.nonGoals.length

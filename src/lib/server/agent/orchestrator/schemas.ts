@@ -21,6 +21,13 @@ export const SPEC_SCHEMA = {
             type: "array",
             items: { type: "string", minLength: 1 },
         },
+        stackProfile: { type: "string", enum: ["vite-spa", "express-fullstack"] },
+        stackProfileReasoning: { type: "string" },
+        designLanguage: {
+            type: "string",
+            enum: ["minimal-light", "editorial-bold", "dense-dashboard", "playful-rounded", "dark-glass"],
+        },
+        designLanguageReasoning: { type: "string" },
     },
 } as const;
 

@@ -74,13 +74,15 @@ import {
     FILE_EDIT_SYSTEM_PROMPT,
 } from "./prompts-specialized";
 import {
-    FRONTEND_DESIGN_SKILL_PROMPT,
     PGLITE_DATABASE_SKILL_PROMPT,
     SKELETON_CONTRACT_SKILL_PROMPT,
+    DESIGN_LANGUAGE_SPEC_GUIDANCE,
+    buildFrontendDesignSkillPrompt,
     shouldApplyFrontendDesignSkill,
     shouldApplyPgliteDatabaseSkill,
     resolveActiveSkills,
 } from "./skills";
+import { STACK_PROFILE_SPEC_GUIDANCE, buildStackProfileGuidance } from "./stack-profiles";
 
 function formatDiversitySeed(seed?: TemplateDiversitySeed): string {
     if (!seed) {
@@ -361,6 +363,8 @@ export async function generateSpec(input: {
             `Thread context:\n${input.threadContext || "(no prior context)"}`,
             `Prior run context:\n${input.priorRunContext}`,
             `Current files:\n${buildFileCatalog(input.files)}`,
+            STACK_PROFILE_SPEC_GUIDANCE,
+            DESIGN_LANGUAGE_SPEC_GUIDANCE,
             "Rules:",
             "- Make acceptance criteria concrete and testable.",
             "- Keep scope realistic for one run.",
@@ -415,7 +419,8 @@ export async function generatePlanOutline(input: {
             `Execution mode: ${executionMode}`,
             `Implementation spec:\n${formatSpecForPrompt(input.spec)}`,
             formatDiversitySeed(input.diversitySeed),
-            applyFrontendDesignSkill ? FRONTEND_DESIGN_SKILL_PROMPT : "",
+            buildStackProfileGuidance(input.spec.stackProfile),
+            applyFrontendDesignSkill ? buildFrontendDesignSkillPrompt(input.spec.designLanguage) : "",
             applyPgliteDatabaseSkill ? PGLITE_DATABASE_SKILL_PROMPT : "",
             `Current files:\n${buildFileCatalog(input.files)}`,
             `Repository map summary:\n${buildRepoMapSummary(input.files)}`,
@@ -588,7 +593,8 @@ export async function generateQaFixOperations(input: {
             `Implementation spec:\n${formatSpecForPrompt(input.spec)}`,
             `Task:\nQuality gate fixes\n${taskInstructions}`,
             formatDiversitySeed(input.diversitySeed),
-            applyFrontendDesignSkill ? FRONTEND_DESIGN_SKILL_PROMPT : "",
+            buildStackProfileGuidance(input.spec.stackProfile),
+            applyFrontendDesignSkill ? buildFrontendDesignSkillPrompt(input.spec.designLanguage) : "",
             applyPgliteDatabaseSkill ? PGLITE_DATABASE_SKILL_PROMPT : "",
             input.additionalInstructions ? `Additional instructions:\n${input.additionalInstructions}` : "",
             `All files:\n${context.fileCatalog}`,
@@ -609,7 +615,9 @@ export async function generateQaFixOperations(input: {
             "- Never call hook-like functions (names starting with use) inside callbacks, loops, conditionals, or nested functions.",
             "- NEVER use window.alert/window.prompt/window.confirm. Use in-app modal or controlled UI state instead.",
             "- If backend/persistence/auth logic is touched, keep it on @electric-sql/pglite only.",
-            "- Do not introduce Supabase/Firebase/Appwrite/Express/remote backend services.",
+            input.spec.stackProfile === "express-fullstack"
+                ? "- Express is sanctioned ONLY inside server/**, per the stack profile guidance above. Do not introduce Supabase/Firebase/Appwrite/other remote backend services, and never import express or PGlite from src/**."
+                : "- Do not introduce Supabase/Firebase/Appwrite/Express/remote backend services.",
             "- Do not emit operations that modify package.json.",
         ].join("\n\n"),
         onPartial: input.onPartial,
@@ -670,6 +678,16 @@ export async function generateSkeletonSpecDag(input: {
         spec: input.spec,
     });
 
+    const stackProfileDagRules =
+        input.spec.stackProfile === "express-fullstack"
+            ? `\n\nEXPRESS-FULLSTACK PROFILE:
+- The DAG MUST also include a server/app.js node: it exports the configured Express app ("app") that server/index.js (already exists, engine-owned) imports and listens on.
+- NEVER plan a node for server/index.js — it already exists and is engine-owned, same as src/main.jsx.
+- Route handlers/middleware belong in server/ (e.g. server/routes/*.js); persistence belongs in server/db.js, using @electric-sql/pglite server-side (a filesystem path, not idb://).
+- server/**/*.js nodes are plain Node ESM signatures: no JSX, no React imports, no window/document.
+- src/App.jsx and the rest of src/** stay the frontend as usual, calling the backend via fetch("/api/...").`
+            : "";
+
     const response = await callStructuredJson<SkeletonSpecDagResponse>({
         providers: input.providers,
         system: [
@@ -686,7 +704,7 @@ Requirements:
 - If a node path ends with .js/.jsx/.mjs/.cjs, signatures MUST be JavaScript-style (no TypeScript annotation syntax).
 - Include routeOwnership for route/page files.
 - Include dbQueries for DB-access files.
-- Keep dependsOnPaths topologically valid (file-to-file dependencies only).`,
+- Keep dependsOnPaths topologically valid (file-to-file dependencies only).${stackProfileDagRules}`,
             },
         ],
         schema: SKELETON_SPEC_DAG_SCHEMA,
@@ -699,7 +717,8 @@ Requirements:
             `Implementation spec:\n${formatSpecForPrompt(input.spec)}`,
             `Plan outline:\n${JSON.stringify(input.planOutline, null, 2)}`,
             formatDiversitySeed(input.diversitySeed),
-            applyFrontendDesignSkill ? FRONTEND_DESIGN_SKILL_PROMPT : "",
+            buildStackProfileGuidance(input.spec.stackProfile),
+            applyFrontendDesignSkill ? buildFrontendDesignSkillPrompt(input.spec.designLanguage) : "",
             applyPgliteDatabaseSkill ? PGLITE_DATABASE_SKILL_PROMPT : "",
             `Current files:\n${buildFileCatalog(input.files)}`,
             `Repository map summary:\n${buildRepoMapSummary(input.files)}`,
@@ -709,7 +728,9 @@ Requirements:
     });
 
     return {
-        dag: normalizeSkeletonSpecDagResponse(response.data, input.userPrompt),
+        dag: normalizeSkeletonSpecDagResponse(response.data, input.userPrompt, {
+            stackProfile: input.spec.stackProfile,
+        }),
         trace: toModelTrace(response),
     };
 }
@@ -788,6 +809,7 @@ RULES:
             `User request:\n${input.userPrompt}`,
             `Spec summary:\n${input.spec.summary}`,
             input.dbSchema ? `Database schema:\n${input.dbSchema}` : "",
+            buildStackProfileGuidance(input.spec.stackProfile),
             skills.skillsPromptBlock,
             `File language modes:\n${languageManifest}`,
             `File contracts:\n${JSON.stringify(contractManifest, null, 2)}`,
@@ -904,6 +926,12 @@ export async function generateFileEdit(input: {
         };
     const fileLanguageMode = buildFileLanguageManifest([targetPath]);
     const contractLock = buildSkeletonContractLockManifest([ownContract]);
+    const skills = resolveActiveSkills({
+        userPrompt: input.userPrompt,
+        spec: input.spec,
+        targetPaths: [targetPath],
+        pipelinePhase: "file-edit",
+    });
 
     const response = await callStructuredJson<OperationResponse>({
         providers: input.providers,
@@ -920,6 +948,8 @@ export async function generateFileEdit(input: {
             `Purpose: ${input.node.purpose}`,
             `User request:\n${input.userPrompt}`,
             `Spec summary:\n${input.spec.summary}`,
+            buildStackProfileGuidance(input.spec.stackProfile),
+            skills.skillsPromptBlock,
             `File language mode:\n${fileLanguageMode}`,
             `Per-file contract lock:\n${contractLock}`,
             `Current file content:\n\`\`\`\n${input.currentCode}\n\`\`\``,
@@ -991,6 +1021,7 @@ export async function generateSkeletonAutofix(input: {
         userPrompt: [
             `User request:\n${input.userPrompt}`,
             `Spec summary:\n${input.spec.summary}`,
+            buildStackProfileGuidance(input.spec.stackProfile),
             skills.skillsPromptBlock,
             `Skeleton issues:\n${input.issues.map((issue) => `- ${issue}`).join("\n")}`,
             `File language modes:\n${languageManifest}`,
@@ -1037,13 +1068,14 @@ export async function generateCoderFill(input: {
     userPrompt: string;
     onPartial?: (partial: Record<string, unknown>) => void;
 }): Promise<OperationResult> {
+    const targetPath = normalizePath(input.skeleton.path);
     const skills = resolveActiveSkills({
         userPrompt: input.userPrompt,
         spec: input.spec,
         fileContracts: input.allContracts,
+        targetPaths: [targetPath],
         pipelinePhase: "coder-fill",
     });
-    const targetPath = normalizePath(input.skeleton.path);
     const fileLanguageMode = buildFileLanguageManifest([input.skeleton.path]);
 
     const ownContract = input.allContracts.find((contract) => {
@@ -1109,6 +1141,7 @@ export async function generateCoderFill(input: {
             `File path: ${input.skeleton.path}`,
             `User request context: ${input.userPrompt}`,
             `Spec summary: ${input.spec.summary}`,
+            buildStackProfileGuidance(input.spec.stackProfile),
             skills.skillsPromptBlock,
             `File language mode:\n${fileLanguageMode}`,
             input.dbSchema ? `Database schema:\n${input.dbSchema}` : "",
@@ -1228,12 +1261,13 @@ export async function generateMissingFillRegions(input: {
     userPrompt: string;
     spec: SpecResponse;
 }): Promise<OperationResult> {
+    const targetPath = normalizePath(input.skeleton.path);
     const skills = resolveActiveSkills({
         userPrompt: input.userPrompt,
         spec: input.spec,
+        targetPaths: [targetPath],
         pipelinePhase: "missing-fill-regions",
     });
-    const targetPath = normalizePath(input.skeleton.path);
     const requiredRegionIds = new Set(
         input.missingRegionIds.map((id) => id.trim()).filter(Boolean)
     );
@@ -1253,6 +1287,7 @@ export async function generateMissingFillRegions(input: {
             `Missing regions to fill:\n${input.missingRegionIds.map(id => `- ${id}`).join("\n")}`,
             `User request context: ${input.userPrompt}`,
             `Spec summary: ${input.spec.summary}`,
+            buildStackProfileGuidance(input.spec.stackProfile),
             skills.skillsPromptBlock,
             `Original skeleton (shows required regions):\n\`\`\`\n${input.skeleton.skeleton}\n\`\`\``,
             `Partially filled code (for context):\n\`\`\`\n${input.candidateCode}\n\`\`\``,
@@ -1361,6 +1396,7 @@ export async function generateFixOperations(input: {
         userPrompt: input.userPrompt,
         threadContext: input.threadContext,
         spec: input.spec,
+        targetPaths: input.task.taskWriteSet,
     });
     // The fixer must see real code: full sources for every write-set file,
     // plus read-only sources for any file an issue names (the other side of
@@ -1401,6 +1437,7 @@ export async function generateFixOperations(input: {
             `User request:\n${input.userPrompt}`,
             `Thread context:\n${input.threadContext || "(none)"}`,
             `Spec summary:\n${input.spec.summary}`,
+            buildStackProfileGuidance(input.spec.stackProfile),
             skills.skillsPromptBlock,
             `Fix task:\n${input.task.title}\n${input.task.instructions}`,
             `Task write-set:\n${input.task.taskWriteSet.map((path) => `- ${path}`).join("\n")}`,

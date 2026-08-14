@@ -7,6 +7,21 @@ import type {
     TaskObjectiveType,
 } from "@/lib/server/types";
 import type { FileOperation } from "@/lib/server/agent/validation";
+import type { StackProfile } from "./stack-profiles";
+
+/**
+ * Design language chosen at spec time and carried through skeleton DAG
+ * generation, fills, and edits (see orchestrator/skills.ts for the concrete
+ * per-language prompt guidance). Defined here — rather than in skills.ts,
+ * which already imports SpecResponse from this file — so SpecResponse can
+ * reference it without a circular type import.
+ */
+export type DesignLanguage =
+    | "minimal-light"
+    | "editorial-bold"
+    | "dense-dashboard"
+    | "playful-rounded"
+    | "dark-glass";
 
 // ─── Skeleton-First Architecture: Contract Types ─────────────────
 
@@ -140,6 +155,12 @@ export interface SpecResponse {
     acceptanceCriteria: string[];
     nonGoals: string[];
     testChecklist: string[];
+    /** Chosen during the spec phase; defaults to "vite-spa" (see stack-profiles.ts). */
+    stackProfile: StackProfile;
+    stackProfileReasoning: string;
+    /** Chosen during the spec phase; defaults to "minimal-light" (see skills.ts). */
+    designLanguage: DesignLanguage;
+    designLanguageReasoning: string;
 }
 
 export interface PlanResponse {

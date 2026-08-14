@@ -126,6 +126,11 @@ import {
   type StarterTemplateProfileId,
   type TemplateDiversitySeed,
 } from "./orchestrator/prompts";
+import {
+  DEFAULT_STACK_PROFILE,
+  inferStackProfileFromFiles,
+  type StackProfile,
+} from "./orchestrator/stack-profiles";
 
 // ─── Execution Guard ──────────────────────────────────────────────
 
@@ -723,6 +728,10 @@ type TerminalBuildCheckResult = {
   passed: boolean;
   install: TerminalCommandResult | null;
   build: TerminalCommandResult | null;
+  // express-fullstack only: "npm run check:server" — the deterministic
+  // backend smoke test (see stack-profiles.ts). null for vite-spa runs, or
+  // when the build itself already failed and the check never ran.
+  serverCheck: TerminalCommandResult | null;
   issues: ValidationIssue[];
   diagnostics: string[];
   outputTail: string[];
@@ -1013,6 +1022,7 @@ function terminalResultToPayload(result: TerminalBuildCheckResult): Record<strin
     passed: result.passed,
     install: mapCommand(result.install),
     build: mapCommand(result.build),
+    serverCheck: mapCommand(result.serverCheck),
     outputTail: result.outputTail,
     diagnostics: result.diagnostics,
   };
@@ -1133,6 +1143,7 @@ async function runTerminalBuildCheck(
   options?: {
     runtimeGateTimeoutMs?: number;
     projectId?: string;
+    stackProfile?: StackProfile;
   }
 ): Promise<TerminalBuildCheckResult> {
   const buildCacheEnabled = isBuildCacheEnabled();
@@ -1209,6 +1220,7 @@ async function runTerminalBuildCheck(
         passed: false,
         install: null,
         build: null,
+        serverCheck: null,
         issues: [
           {
             code: "runtime.terminal_build_failed",
@@ -1226,6 +1238,7 @@ async function runTerminalBuildCheck(
         passed: false,
         install: null,
         build: null,
+        serverCheck: null,
         issues: [
           {
             code: "runtime.invalid_package_json",
@@ -1273,6 +1286,7 @@ async function runTerminalBuildCheck(
         passed: false,
         install,
         build: null,
+        serverCheck: null,
         issues: [
           {
             code: "runtime.terminal_install_failed",
@@ -1294,41 +1308,91 @@ async function runTerminalBuildCheck(
       timeoutMs: getTerminalBuildTimeoutMs(),
     });
 
+    if (build.exitCode !== 0) {
+      const combinedOutput = [...build.stdoutTail, ...build.stderrTail].join("\n");
+      const parsedIssues = parseTerminalBuildIssues(combinedOutput);
+      const issues =
+        parsedIssues.length > 0
+          ? parsedIssues
+          : [
+            {
+              code: "runtime.terminal_build_failed",
+              message:
+                build.combinedTail.find((line) => /error|failed/i.test(line)) ??
+                "Terminal build command failed.",
+            },
+          ];
 
-    if (build.exitCode === 0) {
       return {
-        passed: true,
+        passed: false,
         install,
         build,
-        issues: [],
-        diagnostics: ["[terminal] npm run build passed"],
+        serverCheck: null,
+        issues,
+        diagnostics: [
+          `[terminal] ${build.command} failed (exit=${build.exitCode ?? "null"}, timedOut=${build.timedOut})`,
+          ...build.combinedTail.slice(-12),
+        ],
         outputTail: build.combinedTail.slice(-DEFAULT_TERMINAL_OUTPUT_LINES),
       };
     }
 
-    const combinedOutput = [...build.stdoutTail, ...build.stderrTail].join("\n");
-    const parsedIssues = parseTerminalBuildIssues(combinedOutput);
-    const issues =
-      parsedIssues.length > 0
-        ? parsedIssues
-        : [
-          {
-            code: "runtime.terminal_build_failed",
-            message:
-              build.combinedTail.find((line) => /error|failed/i.test(line)) ??
-              "Terminal build command failed.",
-          },
-        ];
+    // express-fullstack only: the deterministic backend smoke test. Runs
+    // AFTER the frontend build passes, its own step with its own parsed
+    // failure mode, so a broken server/app.js is reported distinctly from a
+    // broken frontend build.
+    if (options?.stackProfile === "express-fullstack") {
+      const serverCheck = await runCommandWithCapture({
+        cwd: tempDir,
+        command: "npm",
+        args: ["run", "check:server"],
+        timeoutMs: getTerminalBuildTimeoutMs(),
+      });
+
+      if (serverCheck.exitCode !== 0) {
+        const firstServerError =
+          serverCheck.combinedTail.find((line) => /error/i.test(line)) ??
+          "npm run check:server failed.";
+        return {
+          passed: false,
+          install,
+          build,
+          serverCheck,
+          issues: [
+            {
+              code: "runtime.server_check_failed",
+              message: `check:server failed. ${firstServerError}`,
+            },
+          ],
+          diagnostics: [
+            `[terminal] ${serverCheck.command} failed (exit=${serverCheck.exitCode ?? "null"}, timedOut=${serverCheck.timedOut})`,
+            ...serverCheck.combinedTail.slice(-12),
+          ],
+          outputTail: serverCheck.combinedTail.slice(-DEFAULT_TERMINAL_OUTPUT_LINES),
+        };
+      }
+
+      return {
+        passed: true,
+        install,
+        build,
+        serverCheck,
+        issues: [],
+        diagnostics: ["[terminal] npm run build passed", "[terminal] npm run check:server passed"],
+        outputTail: [
+          ...build.combinedTail.slice(-DEFAULT_TERMINAL_OUTPUT_LINES),
+          ...serverCheck.combinedTail.slice(-DEFAULT_TERMINAL_OUTPUT_LINES),
+        ],
+      };
+    }
 
     return {
-      passed: false,
+      passed: true,
       install,
       build,
-      issues,
-      diagnostics: [
-        `[terminal] ${build.command} failed (exit=${build.exitCode ?? "null"}, timedOut=${build.timedOut})`,
-        ...build.combinedTail.slice(-12),
-      ],
+      serverCheck: null,
+      issues: [],
+      diagnostics: ["[terminal] npm run build passed"],
       outputTail: build.combinedTail.slice(-DEFAULT_TERMINAL_OUTPUT_LINES),
     };
   } finally {
@@ -1390,6 +1454,15 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   // fix-DAG repair loop gets a chance to see and address them.
   let pendingOperationIssues: ValidationIssue[] = [];
 
+  // Which stack profile (vite-spa / express-fullstack) this run's package
+  // manifest and terminal gate operate against. Closures defined below
+  // (applyOperationsWithEngineManifest, collectFinalValidationState) read
+  // this mutable binding rather than taking it as a parameter, since they
+  // are defined before the spec call resolves the profile and are called
+  // many times after. Set once the spec is known (or inferred from an
+  // existing snapshot for follow-up runs) further down.
+  let currentStackProfile: StackProfile = DEFAULT_STACK_PROFILE;
+
   const applyOperationsWithEngineManifest = (
     currentFiles: GeneratedFile[],
     operations: FileOperation[],
@@ -1430,7 +1503,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
       }
     });
 
-    const { filtered, strippedCount } = stripPackageManifestOperations(sanitized);
+    const { filtered, strippedCount } = stripPackageManifestOperations(sanitized, currentStackProfile);
     const applyResult =
       filtered.length > 0
         ? applyFileOperations(currentFiles, filtered, context)
@@ -1452,7 +1525,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     }
 
     return {
-      files: ensureDeterministicPackageManifest(applyResult.files),
+      files: ensureDeterministicPackageManifest(applyResult.files, currentStackProfile),
       appliedOperations: applyResult.appliedOperations,
       strippedPackageOps: strippedCount,
       invalidOperations: applyResult.invalidOperations,
@@ -1780,6 +1853,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
           passed: true,
           install: null,
           build: null,
+          serverCheck: null,
           issues: [],
           diagnostics: ["[terminal] terminal build check skipped by configuration"],
           outputTail: [],
@@ -1787,6 +1861,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
       : await runTerminalBuildCheck(validation.files, {
           runtimeGateTimeoutMs,
           projectId: run.project_id,
+          stackProfile: currentStackProfile,
         });
 
     // Drain any invalid-file-operation issues queued since the last gate so
@@ -1834,12 +1909,17 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   let selectedStarterProfile: StarterTemplateProfileId | null = null;
   let selectedStarterReason: string | null = null;
   let selectedDiversitySeed: TemplateDiversitySeed | null = null;
+  // For follow-up runs the profile was already committed to by a prior run,
+  // before this run's spec call can decide anything — infer it from the
+  // existing snapshot so the package manifest doesn't flip-flop shape.
+  // First-message runs stay on the default until the spec resolves one.
+  const existingSnapshotFiles = hasExistingSnapshot ? runSnapshotFiles(run.project_id) : null;
+  currentStackProfile = existingSnapshotFiles
+    ? inferStackProfileFromFiles(existingSnapshotFiles)
+    : DEFAULT_STACK_PROFILE;
   let workingFiles = ensureDeterministicPackageManifest(
-    hasExistingSnapshot
-      ? runSnapshotFiles(run.project_id)
-      : starterTemplatesEnabled
-        ? getStarterTemplateFiles()
-        : []
+    existingSnapshotFiles ?? (starterTemplatesEnabled ? getStarterTemplateFiles() : []),
+    currentStackProfile
   );
 
   const priorRunContext = getPriorRunContext(run.project_id, run.id);
@@ -1937,18 +2017,39 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   );
   const spec = specResult.spec;
 
-  const starterSelection = starterTemplatesEnabled
-    ? selectStarterTemplateProfile({
-      userPrompt: triggerMessage.content,
-      spec,
-    })
-    : null;
+  // Follow-up runs keep the profile the project already committed to
+  // (inferred above); cross-profile migration mid-project is out of scope.
+  // First-message runs adopt whatever the spec call decided.
+  if (!hasExistingSnapshot) {
+    currentStackProfile = spec.stackProfile;
+  }
+
+  // The starter-template diversity (frontend-core vs frontend-pglite) only
+  // applies to the vite-spa profile — express-fullstack always persists
+  // server-side, so the client-side-PGlite starter template never applies.
+  const starterSelection =
+    starterTemplatesEnabled && currentStackProfile === "vite-spa"
+      ? selectStarterTemplateProfile({
+        userPrompt: triggerMessage.content,
+        spec,
+      })
+      : null;
   selectedDiversitySeed = starterSelection?.seed ?? null;
 
-  if (!hasExistingSnapshot && starterSelection) {
-    selectedStarterProfile = starterSelection.id;
-    selectedStarterReason = starterSelection.reason;
-    workingFiles = ensureDeterministicPackageManifest(getStarterTemplateFiles(starterSelection.id));
+  if (!hasExistingSnapshot) {
+    if (currentStackProfile === "express-fullstack") {
+      selectedStarterProfile = null;
+      selectedStarterReason =
+        "Express full-stack profile selected; seeding the server-aware scaffold (package.json, vite proxy, server/index.js bootstrap) instead of a frontend-only starter template.";
+      workingFiles = ensureDeterministicPackageManifest([], currentStackProfile);
+    } else if (starterSelection) {
+      selectedStarterProfile = starterSelection.id;
+      selectedStarterReason = starterSelection.reason;
+      workingFiles = ensureDeterministicPackageManifest(
+        getStarterTemplateFiles(starterSelection.id),
+        currentStackProfile
+      );
+    }
   }
 
   createRunArtifact({
@@ -1974,6 +2075,10 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
       modeReasoning: executionModeReasoning,
       modeTargetPaths: executionModeTargetPaths,
       retrievedContextStats: specContextPack.stats,
+      stackProfile: currentStackProfile,
+      stackProfileReasoning: spec.stackProfileReasoning,
+      designLanguage: spec.designLanguage,
+      designLanguageReasoning: spec.designLanguageReasoning,
       starterTemplate: selectedStarterProfile
         ? {
           profile: selectedStarterProfile,
@@ -3053,6 +3158,7 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     passed: true,
     install: null,
     build: null,
+    serverCheck: null,
     issues: [],
     diagnostics: [],
     outputTail: [],
@@ -3711,6 +3817,8 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     content: {
       executionMode,
       executionScope,
+      stackProfile: currentStackProfile,
+      designLanguage: spec.designLanguage,
       diagnostics,
       fileCount: workingFiles.length,
       snapshotId: snapshot.id,

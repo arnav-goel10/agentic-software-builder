@@ -17,12 +17,19 @@ import type {
     FixDagTask,
     FixDagResponse,
     ModeDecisionResponse,
+    DesignLanguage,
 } from "./types";
 import type { FileOperation } from "@/lib/server/agent/validation";
 import { normalizePath } from "@/lib/server/agent/validation";
 import { isEngineOwnedConfigPath } from "@/lib/server/agent/package-manifest";
 import { MAX_PLAN_TASKS } from "./prompts";
 import type { ExecutionMode, ExecutionScope, TaskObjectiveType } from "@/lib/server/types";
+import {
+    DEFAULT_STACK_PROFILE,
+    MODEL_SERVER_APP_PATH,
+    type StackProfile,
+} from "./stack-profiles";
+import { DEFAULT_DESIGN_LANGUAGE, DESIGN_LANGUAGE_IDS } from "./skills";
 
 const JSON_MANIFEST_TARGET_PATH_PATTERN = /\.json$/i;
 
@@ -587,6 +594,27 @@ export function normalizeSpecResponse(candidate: unknown, userPrompt: string): S
         "Verify no uncaught runtime error appears in console.",
     ]);
 
+    const stackProfileRaw = typeof payload.stackProfile === "string" ? payload.stackProfile : "";
+    const stackProfile: StackProfile =
+        stackProfileRaw === "express-fullstack" ? "express-fullstack" : DEFAULT_STACK_PROFILE;
+    const stackProfileReasoning =
+        typeof payload.stackProfileReasoning === "string" && payload.stackProfileReasoning.trim()
+            ? payload.stackProfileReasoning.trim()
+            : stackProfile === "express-fullstack"
+                ? "Request needs server-side behavior a browser-only app cannot provide."
+                : "Request is satisfied by a browser-only single-page app.";
+
+    const designLanguageRaw = typeof payload.designLanguage === "string" ? payload.designLanguage : "";
+    const designLanguage: DesignLanguage = (
+        DESIGN_LANGUAGE_IDS as readonly string[]
+    ).includes(designLanguageRaw)
+        ? (designLanguageRaw as DesignLanguage)
+        : DEFAULT_DESIGN_LANGUAGE;
+    const designLanguageReasoning =
+        typeof payload.designLanguageReasoning === "string" && payload.designLanguageReasoning.trim()
+            ? payload.designLanguageReasoning.trim()
+            : `Defaulted to the ${designLanguage} design language.`;
+
     return {
         summary:
             typeof payload.summary === "string" && payload.summary.trim()
@@ -596,6 +624,10 @@ export function normalizeSpecResponse(candidate: unknown, userPrompt: string): S
         acceptanceCriteria,
         nonGoals: toList(payload.nonGoals, []),
         testChecklist,
+        stackProfile,
+        stackProfileReasoning,
+        designLanguage,
+        designLanguageReasoning,
     };
 }
 
@@ -950,8 +982,10 @@ const APP_ROOT_PATH_PATTERN = /^src\/App\.(jsx|tsx|js|ts)$/;
 
 export function normalizeSkeletonSpecDagResponse(
     candidate: unknown,
-    fallbackPrompt: string
+    fallbackPrompt: string,
+    options?: { stackProfile?: StackProfile }
 ): SkeletonSpecDagResponse {
+    const stackProfile = options?.stackProfile ?? DEFAULT_STACK_PROFILE;
     const payload = candidate as Partial<SkeletonSpecDagResponse & ArchitectPlanResponse>;
     const plan = normalizeArchitectPlanResponse(payload, fallbackPrompt);
     let nodes = normalizeSkeletonDagNodes((payload as { nodes?: unknown }).nodes, plan.fileContracts);
@@ -1002,14 +1036,14 @@ export function normalizeSkeletonSpecDagResponse(
     // deterministically and protected from model edits, so planning nodes
     // for them wastes generation calls and guarantees doomed fill attempts.
     plan.fileContracts = plan.fileContracts.filter(
-        (contract) => !isEngineOwnedConfigPath(normalizePath(contract.path))
+        (contract) => !isEngineOwnedConfigPath(normalizePath(contract.path), stackProfile)
     );
     nodes = nodes
-        .filter((node) => !isEngineOwnedConfigPath(normalizePath(node.path)))
+        .filter((node) => !isEngineOwnedConfigPath(normalizePath(node.path), stackProfile))
         .map((node) => ({
             ...node,
             dependsOnPaths: node.dependsOnPaths.filter(
-                (dependencyPath) => !isEngineOwnedConfigPath(normalizePath(dependencyPath))
+                (dependencyPath) => !isEngineOwnedConfigPath(normalizePath(dependencyPath), stackProfile)
             ),
         }));
     // The system-owned src/main.jsx renders src/App.jsx unconditionally, so a
@@ -1044,6 +1078,43 @@ export function normalizeSkeletonSpecDagResponse(
             externalLibraries: [],
             dependsOnPaths: nodes.map((node) => node.path),
         });
+    }
+    // Mirror the app-root guard above for the express-fullstack profile: the
+    // engine-owned server/index.js bootstrap unconditionally imports
+    // server/app.js and calls .listen() on it, so a DAG that forgets it is
+    // guaranteed to fail the check:server smoke test. Inject it
+    // deterministically, same as src/App.jsx above.
+    if (stackProfile === "express-fullstack") {
+        const hasServerApp =
+            nodes.some((node) => node.path === MODEL_SERVER_APP_PATH) ||
+            plan.fileContracts.some((contract) => contract.path === MODEL_SERVER_APP_PATH);
+        if (!hasServerApp) {
+            const serverAppExports = [
+                {
+                    name: "app",
+                    kind: "const" as const,
+                    signature: "express.Express",
+                    description:
+                        "The configured Express application (routes, middleware, JSON body parsing) that server/index.js imports and listens on.",
+                },
+            ];
+            plan.fileContracts.push({
+                path: MODEL_SERVER_APP_PATH,
+                purpose: "Express application: mounts /api/* routes and middleware for the backend.",
+                imports: [],
+                exports: serverAppExports,
+            });
+            nodes.push({
+                path: MODEL_SERVER_APP_PATH,
+                purpose: "Express application: mounts /api/* routes and middleware for the backend.",
+                imports: [],
+                exports: serverAppExports,
+                externalLibraries: ["express"],
+                dependsOnPaths: nodes
+                    .filter((node) => node.path.startsWith("server/") && node.path !== MODEL_SERVER_APP_PATH)
+                    .map((node) => node.path),
+            });
+        }
     }
     return {
         summary:
