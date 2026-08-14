@@ -10,14 +10,12 @@ import { normalizePath } from "@/lib/server/agent/validation";
 import type {
     SpecResponse,
     PlanResponse,
-    PlanTask,
     OperationResponse,
     QaResponse,
     SummaryResponse,
     ModelTrace,
     OperationResult,
     QaResult,
-    ArchitectPlanResponse,
     FileContract,
     SkeletonFile,
     PlanOutlineResponse,
@@ -32,7 +30,6 @@ import {
     OPERATIONS_SCHEMA,
     SUMMARY_SCHEMA,
     QA_SCHEMA,
-    ARCHITECT_PLAN_SCHEMA,
     SKELETON_SPEC_DAG_SCHEMA,
     SKELETON_FILL_SCHEMA,
     SKELETON_REGION_FILL_SCHEMA,
@@ -58,7 +55,6 @@ import {
     normalizePlanResponse,
     normalizeOperationResponse,
     normalizeQaResponse,
-    normalizeArchitectPlanResponse,
     normalizePlanOutlineResponse,
     normalizeSkeletonSpecDagResponse,
     normalizeFixDagResponse,
@@ -380,304 +376,6 @@ export async function generatePlanOutline(input: {
     };
 }
 
-export async function generateOperations(input: {
-    providers: ConfiguredModelProvider[];
-    userPrompt: string;
-    executionMode?: ExecutionMode;
-    threadContext?: string;
-    spec: SpecResponse;
-    planSummary: string;
-    task: PlanTask;
-    files: GeneratedFile[];
-    fileContracts?: FileContract[];
-    diversitySeed?: TemplateDiversitySeed;
-    forceNonEmpty?: boolean;
-    noOpPolicy?: "strict" | "classify";
-    additionalInstructions?: string;
-    onPartial?: (partial: Record<string, unknown>) => void;
-}): Promise<OperationResult> {
-    const context = buildTaskContextPack({
-        files: input.files,
-        userPrompt: input.userPrompt,
-        planSummary: input.planSummary,
-        taskTitle: input.task.title,
-        taskInstructions: input.task.instructions,
-    });
-    const applyFrontendDesignSkill = shouldApplyFrontendDesignSkill({
-        userPrompt: input.userPrompt,
-        threadContext: input.threadContext,
-        spec: input.spec,
-        task: input.task,
-        additionalInstructions: input.additionalInstructions,
-    });
-    const applyPgliteDatabaseSkill = shouldApplyPgliteDatabaseSkill({
-        userPrompt: input.userPrompt,
-        threadContext: input.threadContext,
-        spec: input.spec,
-        task: input.task,
-        additionalInstructions: input.additionalInstructions,
-    });
-
-    const promptBase = [
-        `User request:\n${input.userPrompt}`,
-        `Thread context:\n${input.threadContext || "(none)"}`,
-        `Implementation spec:\n${formatSpecForPrompt(input.spec)}`,
-        `Plan summary:\n${input.planSummary}`,
-        `Task:\n${input.task.title}\n${input.task.instructions}`,
-        `Task write-set (allowed paths only):\n${input.task.taskWriteSet.map((path) => `- ${path}`).join("\n")}`,
-        input.fileContracts && input.fileContracts.length > 0
-            ? `Skeleton Contracts (MUST HONOR):\n${input.fileContracts
-                .map(
-                    (c) =>
-                        `- ${c.path}: exports [${c.exports.map((e) => e.name).join(", ")}]`
-                )
-                .join("\n")}`
-            : "",
-        formatDiversitySeed(input.diversitySeed),
-        applyFrontendDesignSkill ? FRONTEND_DESIGN_SKILL_PROMPT : "",
-        applyPgliteDatabaseSkill ? PGLITE_DATABASE_SKILL_PROMPT : "",
-        input.additionalInstructions ? `Additional instructions:\n${input.additionalInstructions}` : "",
-        `All files:\n${context.fileCatalog}`,
-        `Repository map summary:\n${context.repoMapSummary}`,
-        `Focused files used as context:\n${context.selectedNames.map((name) => `- ${name}`).join("\n")}`,
-        "Focused working tree (truncated):",
-        context.treeDigest,
-        "Rules:",
-        "- Use upsert to create/update files.",
-        "- Use delete to remove obsolete files.",
-        "- Use json_manifest_update only for non-engine-owned JSON files when a targeted JSON merge is safer than full rewrite.",
-        "- json_manifest_update path MUST end with .json. Never use json_manifest_update for .js/.jsx/.ts/.tsx/.css/.html files.",
-        "- You MUST only modify files from taskWriteSet.",
-        "- Return the smallest set of operations needed for this task.",
-        "- Do not rewrite unchanged files.",
-        "- Match file language by extension; never add TypeScript syntax to .js/.jsx/.mjs/.cjs files.",
-        "- If you introduce a new local import path, include operation(s) that create/update that imported local module in the same response.",
-        "- Never call hook-like functions (names starting with use) inside callbacks, loops, conditionals, or nested functions.",
-        "- NEVER use window.alert/window.prompt/window.confirm. Use in-app modal or controlled UI state instead.",
-        "- If this task needs persistence/auth/backend behavior, use @electric-sql/pglite only.",
-        "- @electric-sql/pglite import MUST be named import only: `import { PGlite } from \"@electric-sql/pglite\"` (never default import).",
-        "- For @electric-sql/pglite readiness, use `await db.waitReady` (promise property). Never call `waitReady()` as a function.",
-        "- For persisted PGlite schemas, do not rely only on CREATE TABLE IF NOT EXISTS. Add migration guards (query information_schema.columns to check existing columns + ALTER TABLE ADD COLUMN) for new columns.",
-        "- Keep all exports at module top-level. Never place `export` declarations inside try/catch/functions.",
-        "- Ensure one top-level QueryClientProvider + shared QueryClient in runtime entrypoint (src/main.* or index.*). Do not call query hooks in the same component that creates the provider.",
-        "- For PGlite, call db.query(sql, params?) with SQL string first. Do NOT use object-style db.query({ text, values }).",
-        "- PGlite is PostgreSQL — use PostgreSQL syntax ONLY. Never use AUTOINCREMENT (use SERIAL), PRAGMA (use information_schema), datetime('now') (use NOW()), or INTEGER for booleans (use BOOLEAN). Use parameterized queries with $1 placeholders.",
-        "- If Vite config is touched and PGlite is used, set optimizeDeps.exclude to [\"@electric-sql/pglite\"].",
-        "- When using @electric-sql/pglite with idb:// persistence, include recovery for corrupted FS bundle errors (e.g. Invalid FS bundle size) with a fallback data directory and one retry path.",
-        "- PGlite fallback dataDir must be unique per retry attempt (include attempt counter and/or Date.now()). Do not use one static fallback DB name.",
-        "- PGlite initialization must be single-flight with one shared init promise/lock to prevent parallel init races.",
-        "- Keep PGlite initialization in one dedicated data module only (for example src/lib/db.js). Do NOT initialize PGlite in App/components/pages/hooks.",
-        "- If DB code already exists in src/lib/db.js (or equivalent), update/import that module instead of creating a second DB init path.",
-        "- In CSS files use `@import \"tailwindcss\";` only (never `@tailwindcss/postcss;`).",
-        "- Avoid shadcn semantic token utilities in @apply blocks (`border-border`, `bg-background`, `text-foreground`, `ring-ring`, etc.). Use concrete Tailwind utilities unless full semantic theme tokens are explicitly configured.",
-        "- Do not use custom CSS class names inside @apply (for example `@apply glass-input`); keep @apply limited to Tailwind utility classes.",
-        "- Do not introduce Supabase/Firebase/Appwrite/Express/remote backend services.",
-        "- Do not emit operations that modify package.json.",
-    ]
-        .filter(Boolean)
-        .join("\n\n");
-
-    const first = await callStructuredJson<OperationResponse>({
-        providers: input.providers,
-        system: [
-            { text: BASE_AGENT_SYSTEM_PROMPT, cache: true },
-            { text: "\nYou are in the execution phase. Return only file operations for the task." },
-        ],
-        schema: OPERATIONS_SCHEMA,
-        userPrompt: promptBase,
-        onPartial: input.onPartial,
-    });
-    let normalized = normalizeOperationResponse(first.data);
-    let trace = toModelTrace(first);
-
-    if (input.forceNonEmpty && normalized.operations.length === 0) {
-        const retry = await callStructuredJson<OperationResponse>({
-            providers: input.providers,
-            system: [
-                { text: BASE_AGENT_SYSTEM_PROMPT, cache: true },
-                { text: "\nYou are in the execution phase. Return only file operations for the task." },
-            ],
-            schema: OPERATIONS_SCHEMA,
-            userPrompt: `${promptBase}\n\nYour previous output had zero operations. If the task is already satisfied, explain why in summary; otherwise return concrete operations.`,
-        });
-        normalized = normalizeOperationResponse(retry.data);
-        trace = toModelTrace(retry);
-    }
-
-    let prunedOperations = pruneNoOpOperations(input.files, normalized.operations);
-
-    if (input.forceNonEmpty && prunedOperations.length === 0) {
-        const hardRetry = await callStructuredJson<OperationResponse>({
-            providers: input.providers,
-            system: [
-                { text: BASE_AGENT_SYSTEM_PROMPT, cache: true },
-                { text: "\nYou are in the execution phase. Return only file operations for the task." },
-            ],
-            schema: OPERATIONS_SCHEMA,
-            userPrompt: [
-                promptBase,
-                "CRITICAL: Previous attempts produced zero effective file operations.",
-                "Return at least ONE concrete upsert/delete operation that advances this task.",
-                "If a file must be updated, emit a full-file upsert.",
-                "Do not return an empty operations array.",
-            ].join("\n\n"),
-        });
-        normalized = normalizeOperationResponse(hardRetry.data);
-        trace = toModelTrace(hardRetry);
-        prunedOperations = pruneNoOpOperations(input.files, normalized.operations);
-
-        if (prunedOperations.length === 0) {
-            const lowerSummary = normalized.summary.toLowerCase();
-            const noOpPolicy = input.noOpPolicy ?? "strict";
-            const shouldClassify =
-                noOpPolicy === "classify" || input.executionMode === "followup_fix_mode";
-            if (!shouldClassify) {
-                throw new Error(
-                    `Task produced zero effective operations after retries: ${input.task.id} (${input.task.title}).`
-                );
-            }
-
-            let classification: "already_satisfied" | "mis_scoped_task" | "model_noop" =
-                "model_noop";
-            if (
-                input.task.objectiveType === "verification" ||
-                /\balready\s+(implemented|satisfied|present)\b/.test(lowerSummary) ||
-                /\bno\s+changes?\s+required\b/.test(lowerSummary)
-            ) {
-                classification = "already_satisfied";
-            } else if (/\b(outside|out of)\s+scope\b/.test(lowerSummary)) {
-                classification = "mis_scoped_task";
-            }
-
-            return {
-                summary: normalized.summary,
-                operations: [],
-                trace,
-                contextFiles: context.selectedNames,
-                noOpDecision: {
-                    classification,
-                    reason:
-                        classification === "already_satisfied"
-                            ? "Task appears already satisfied by existing files."
-                            : classification === "mis_scoped_task"
-                                ? "Task scope appears misaligned with the write-set."
-                                : "Model produced no effective diff for this task.",
-                    deferred: classification !== "already_satisfied",
-                },
-            };
-        }
-    }
-
-    return {
-        summary: normalized.summary,
-        operations: prunedOperations,
-        trace,
-        contextFiles: context.selectedNames,
-    };
-}
-
-export async function generateRepairOperations(input: {
-    providers: ConfiguredModelProvider[];
-    userPrompt: string;
-    threadContext?: string;
-    spec: SpecResponse;
-    task: PlanTask;
-    files: GeneratedFile[];
-    issues: string[];
-    issueAnchors?: string[];
-    diversitySeed?: TemplateDiversitySeed;
-    additionalInstructions?: string;
-}): Promise<OperationResult> {
-    const context = buildTaskContextPack({
-        files: input.files,
-        userPrompt: input.userPrompt,
-        taskTitle: input.task.title,
-        taskInstructions: input.task.instructions,
-    });
-    const applyFrontendDesignSkill = shouldApplyFrontendDesignSkill({
-        userPrompt: input.userPrompt,
-        threadContext: input.threadContext,
-        spec: input.spec,
-        task: input.task,
-        additionalInstructions: input.additionalInstructions,
-    });
-    const applyPgliteDatabaseSkill = shouldApplyPgliteDatabaseSkill({
-        userPrompt: input.userPrompt,
-        threadContext: input.threadContext,
-        spec: input.spec,
-        task: input.task,
-        additionalInstructions: input.additionalInstructions,
-    });
-
-    const response = await callStructuredJson<OperationResponse>({
-        providers: input.providers,
-        system: [
-            { text: BASE_AGENT_SYSTEM_PROMPT, cache: true },
-            { text: "\nYou are in the repair phase. Return only targeted fixes for validation issues." },
-        ],
-        schema: OPERATIONS_SCHEMA,
-        userPrompt: [
-            `User request:\n${input.userPrompt}`,
-            `Thread context:\n${input.threadContext || "(none)"}`,
-            `Implementation spec:\n${formatSpecForPrompt(input.spec)}`,
-            `Task:\n${input.task.title}\n${input.task.instructions}`,
-            `Task write-set (allowed paths only):\n${input.task.taskWriteSet.map((path) => `- ${path}`).join("\n")}`,
-            formatDiversitySeed(input.diversitySeed),
-            applyFrontendDesignSkill ? FRONTEND_DESIGN_SKILL_PROMPT : "",
-            applyPgliteDatabaseSkill ? PGLITE_DATABASE_SKILL_PROMPT : "",
-            `Validation issues:\n${input.issues.join("\n")}`,
-            input.issueAnchors && input.issueAnchors.length > 0
-                ? `Issue anchors (file/function/line fingerprints):\n${input.issueAnchors.join("\n")}`
-                : "",
-            `All files:\n${context.fileCatalog}`,
-            `Repository map summary:\n${context.repoMapSummary}`,
-            "Focused working tree (truncated):",
-            context.treeDigest,
-            "Rules:",
-            "- Fix only the listed validation failures.",
-            "- Use json_manifest_update only for non-engine-owned JSON files when a targeted JSON merge is safer than full rewrite.",
-            "- json_manifest_update path MUST end with .json. Never use json_manifest_update for .js/.jsx/.ts/.tsx/.css/.html files.",
-            "- You MUST only modify files from taskWriteSet.",
-            "- Keep unrelated functionality unchanged.",
-            "- Match file language by extension; never add TypeScript syntax to .js/.jsx/.mjs/.cjs files.",
-            "- If you introduce a new local import path, include operation(s) that create/update that imported local module in the same response.",
-            "- Never call hook-like functions (names starting with use) inside callbacks, loops, conditionals, or nested functions.",
-            "- NEVER use window.alert/window.prompt/window.confirm. Use in-app modal or controlled UI state instead.",
-            "- If backend/persistence/auth logic is touched, keep it on @electric-sql/pglite only.",
-            "- @electric-sql/pglite import MUST be named import only: `import { PGlite } from \"@electric-sql/pglite\"` (never default import).",
-            "- For @electric-sql/pglite readiness, use `await db.waitReady` (promise property). Never call `waitReady()` as a function.",
-            "- For persisted PGlite schemas, do not rely only on CREATE TABLE IF NOT EXISTS. Add migration guards (query information_schema.columns to check existing columns + ALTER TABLE ADD COLUMN) for new columns.",
-            "- Keep all exports at module top-level. Never place `export` declarations inside try/catch/functions.",
-            "- Ensure one top-level QueryClientProvider + shared QueryClient in runtime entrypoint (src/main.* or index.*). Do not call query hooks in the same component that creates the provider.",
-            "- For PGlite, call db.query(sql, params?) with SQL string first. Do NOT use object-style db.query({ text, values }).",
-            "- PGlite is PostgreSQL — use PostgreSQL syntax ONLY. Never use AUTOINCREMENT (use SERIAL), PRAGMA (use information_schema), datetime('now') (use NOW()), or INTEGER for booleans (use BOOLEAN). Use parameterized queries with $1 placeholders.",
-            "- If Vite config is touched and PGlite is used, set optimizeDeps.exclude to [\"@electric-sql/pglite\"].",
-            "- If @electric-sql/pglite uses idb:// persistence, include recovery for corrupted FS bundle errors (e.g. Invalid FS bundle size) with fallback dataDir and one retry path.",
-            "- PGlite fallback dataDir must be unique per retry attempt (include attempt counter and/or Date.now()). Do not use one static fallback DB name.",
-            "- PGlite initialization must be single-flight with one shared init promise/lock to prevent parallel init races.",
-            "- Keep PGlite initialization in one dedicated data module only (for example src/lib/db.js). Do NOT initialize PGlite in App/components/pages/hooks.",
-            "- If DB code already exists in src/lib/db.js (or equivalent), update/import that module instead of creating a second DB init path.",
-            "- In CSS files use `@tailwind base; @tailwind components; @tailwind utilities;` only (never `@import \"tailwindcss\";`).",
-            "- Avoid shadcn semantic token utilities in @apply blocks (`border-border`, `bg-background`, `text-foreground`, `ring-ring`, etc.). Use concrete Tailwind utilities unless full semantic theme tokens are explicitly configured.",
-            "- Do not use custom CSS class names inside @apply (for example `@apply glass-input`); keep @apply limited to Tailwind utility classes.",
-            "- Do not introduce Supabase/Firebase/Appwrite/Express/remote backend services.",
-            "- Do not emit operations that modify package.json.",
-            input.additionalInstructions
-                ? `Additional instructions:\n${input.additionalInstructions}`
-                : "",
-        ].join("\n\n"),
-    });
-
-    const normalized = normalizeOperationResponse(response.data);
-    const prunedOperations = pruneNoOpOperations(input.files, normalized.operations);
-    return {
-        summary: normalized.summary,
-        operations: prunedOperations,
-        trace: toModelTrace(response),
-        contextFiles: context.selectedNames,
-    };
-}
-
 export async function generateQaVerdict(input: {
     providers: ConfiguredModelProvider[];
     userPrompt: string;
@@ -763,15 +461,8 @@ export async function generateQaFixOperations(input: {
     validationIssues?: string[];
     runtimeDiagnostics?: string[];
     additionalInstructions?: string;
+    onPartial?: (partial: Record<string, unknown>) => void;
 }): Promise<OperationResult> {
-    const task: PlanTask = {
-        id: "qa-fix",
-        title: "Quality gate fixes",
-        instructions: "Close blocker gaps from QA while preserving existing functionality.",
-        dependsOn: [],
-        taskWriteSet: input.files.map((file) => file.name),
-    };
-
     const hardBlockerText = input.qa.hardBlockers.length
         ? input.qa.hardBlockers.map((item) => `- ${item}`).join("\n")
         : "- (none)";
@@ -790,28 +481,91 @@ export async function generateQaFixOperations(input: {
             ? input.runtimeDiagnostics.map((item) => `- ${item}`).join("\n")
             : "- (none)";
 
-    return generateOperations({
-        providers: input.providers,
+    const taskInstructions = [
+        "Close blocker gaps from QA while preserving existing functionality.",
+        `Current QA score: ${input.qa.score}`,
+        `Validation issues (MUST FIX):\n${validationText}`,
+        `Runtime diagnostics (MUST ADDRESS if relevant):\n${runtimeText}`,
+        `QA model-reported hard blockers (ADVISORY unless corroborated by validation/runtime diagnostics):\n${hardBlockerText}`,
+        `QA soft blockers (advisory):\n${softBlockerText}`,
+        `Suggested fixes:\n${fixText}`,
+    ].join("\n\n");
+
+    // Context: hard blockers + relevance-ranked relevant file sources, via
+    // the same context pack machinery used by the plan-execution generators.
+    const context = buildTaskContextPack({
+        files: input.files,
+        userPrompt: input.userPrompt,
+        planSummary: "Quality-gate remediation",
+        taskTitle: "Quality gate fixes",
+        taskInstructions,
+    });
+
+    const applyFrontendDesignSkill = shouldApplyFrontendDesignSkill({
         userPrompt: input.userPrompt,
         threadContext: input.threadContext,
         spec: input.spec,
-        planSummary: "Quality-gate remediation",
-        task,
-        files: input.files,
-        diversitySeed: input.diversitySeed,
-        forceNonEmpty: false,
-        additionalInstructions: [
-            `Current QA score: ${input.qa.score}`,
-            `Validation issues (MUST FIX):\n${validationText}`,
-            `Runtime diagnostics (MUST ADDRESS if relevant):\n${runtimeText}`,
-            `QA model-reported hard blockers (ADVISORY unless corroborated by validation/runtime diagnostics):\n${hardBlockerText}`,
-            `QA soft blockers (advisory):\n${softBlockerText}`,
-            `Suggested fixes:\n${fixText}`,
-            "Focus ONLY on validation errors, runtime diagnostics, and corroborated hard blockers that can break build/runtime.",
-            "Treat soft blockers as advisory; do not spend operations on polish-only changes during remediation.",
-            input.additionalInstructions ?? "",
-        ].join("\n\n"),
+        additionalInstructions: input.additionalInstructions,
     });
+    const applyPgliteDatabaseSkill = shouldApplyPgliteDatabaseSkill({
+        userPrompt: input.userPrompt,
+        threadContext: input.threadContext,
+        spec: input.spec,
+        additionalInstructions: input.additionalInstructions,
+    });
+
+    const response = await callStructuredJson<OperationResponse>({
+        providers: input.providers,
+        system: [
+            { text: QA_SYSTEM_PROMPT, cache: true },
+            {
+                text:
+                    "\nYou are in the QA repair phase. Return only targeted file operations that close hard-blocker gaps from the quality gate while preserving existing functionality.",
+            },
+        ],
+        schema: OPERATIONS_SCHEMA,
+        userPrompt: [
+            `User request:\n${input.userPrompt}`,
+            `Thread context:\n${input.threadContext || "(none)"}`,
+            `Implementation spec:\n${formatSpecForPrompt(input.spec)}`,
+            `Task:\nQuality gate fixes\n${taskInstructions}`,
+            formatDiversitySeed(input.diversitySeed),
+            applyFrontendDesignSkill ? FRONTEND_DESIGN_SKILL_PROMPT : "",
+            applyPgliteDatabaseSkill ? PGLITE_DATABASE_SKILL_PROMPT : "",
+            input.additionalInstructions ? `Additional instructions:\n${input.additionalInstructions}` : "",
+            `All files:\n${context.fileCatalog}`,
+            `Repository map summary:\n${context.repoMapSummary}`,
+            `Focused files used as context:\n${context.selectedNames.map((name) => `- ${name}`).join("\n")}`,
+            "Focused working tree (truncated):",
+            context.treeDigest,
+            "Rules:",
+            "- Focus ONLY on validation errors, runtime diagnostics, and corroborated hard blockers that can break build/runtime.",
+            "- Treat soft blockers as advisory; do not spend operations on polish-only changes during remediation.",
+            "- Use upsert to create/update files; use delete to remove obsolete files.",
+            "- Use json_manifest_update only for non-engine-owned JSON files when a targeted JSON merge is safer than full rewrite.",
+            "- json_manifest_update path MUST end with .json. Never use json_manifest_update for .js/.jsx/.ts/.tsx/.css/.html files.",
+            "- Return the smallest set of operations needed to resolve the listed blockers.",
+            "- Do not rewrite unchanged files.",
+            "- Match file language by extension; never add TypeScript syntax to .js/.jsx/.mjs/.cjs files.",
+            "- If you introduce a new local import path, include operation(s) that create/update that imported local module in the same response.",
+            "- Never call hook-like functions (names starting with use) inside callbacks, loops, conditionals, or nested functions.",
+            "- NEVER use window.alert/window.prompt/window.confirm. Use in-app modal or controlled UI state instead.",
+            "- If backend/persistence/auth logic is touched, keep it on @electric-sql/pglite only.",
+            "- Do not introduce Supabase/Firebase/Appwrite/Express/remote backend services.",
+            "- Do not emit operations that modify package.json.",
+        ].join("\n\n"),
+        onPartial: input.onPartial,
+        mockFixtureKey: "qa_fix",
+    });
+
+    const normalized = normalizeOperationResponse(response.data);
+    const prunedOperations = pruneNoOpOperations(input.files, normalized.operations);
+    return {
+        summary: normalized.summary,
+        operations: prunedOperations,
+        trace: toModelTrace(response),
+        contextFiles: context.selectedNames,
+    };
 }
 
 // ─── Skeleton-First Architecture: Generator Functions ────────────
@@ -878,102 +632,6 @@ Requirements:
 
     return {
         dag: normalizeSkeletonSpecDagResponse(response.data, input.userPrompt),
-        trace: toModelTrace(response),
-    };
-}
-
-/**
- * Enhanced plan generator that produces structured file contracts
- * alongside the traditional task DAG. This is Phase ② of the
- * skeleton-first pipeline.
- */
-export async function generateArchitectPlan(input: {
-    providers: ConfiguredModelProvider[];
-    userPrompt: string;
-    threadContext: string;
-    spec: SpecResponse;
-    files: GeneratedFile[];
-    diversitySeed?: TemplateDiversitySeed;
-    executionMode?: ExecutionMode;
-    onPartial?: (partial: Record<string, unknown>) => void;
-}): Promise<{ plan: ArchitectPlanResponse; trace: ModelTrace }> {
-    const executionMode = input.executionMode ?? "feature_mode";
-    const applyFrontendDesignSkill = shouldApplyFrontendDesignSkill({
-        userPrompt: input.userPrompt,
-        threadContext: input.threadContext,
-        spec: input.spec,
-    });
-    const applyPgliteDatabaseSkill = shouldApplyPgliteDatabaseSkill({
-        userPrompt: input.userPrompt,
-        threadContext: input.threadContext,
-        spec: input.spec,
-    });
-    const backendRequested = [input.userPrompt, input.threadContext, input.spec.summary, ...input.spec.requirements]
-        .join(" ")
-        .toLowerCase()
-        .match(/\b(auth|database|backend|api|postgres|sql|pglite|storage|server|persist)\b/);
-    const minTasks =
-        executionMode === "followup_fix_mode" ? 1 : backendRequested ? 6 : 4;
-    const maxTasks =
-        executionMode === "followup_fix_mode" ? 3 : backendRequested ? 8 : 6;
-
-    const repoMapSummary = buildRepoMapSummary(input.files);
-
-    const response = await callStructuredJson<ArchitectPlanResponse>({
-        providers: input.providers,
-        system: [
-            { text: ARCHITECT_SYSTEM_PROMPT, cache: true },
-            {
-                text: `\nYou are in the ARCHITECT phase. You must produce a detailed implementation plan with STRUCTURED FILE CONTRACTS.
-
-Requirements:
-- Produce ${minTasks}-${maxTasks} tasks for this request.
-- Every task MUST include taskWriteSet (absolute list of workspace-relative paths it owns).
-- Every task MUST include objectiveType: direct_fix | supporting_refactor | verification.
-- Every task MUST include fileContracts — one per file in taskWriteSet.
-- Keep tasks dependency-aware with dependsOn.
-- Prefer disjoint taskWriteSet values to unlock safe parallelism.
-
-FILE CONTRACT RULES (CRITICAL):
-- For each file, list ALL imports from other project files (not npm packages).
-- For each file, list ALL exports with exact name, kind, signature, and description.
-- Import names MUST match the exact export names from the source file's contract.
-- If File A imports "useCoinGeckoPrices" from File B, then File B's contract MUST export "useCoinGeckoPrices".
-- Every export must have a description explaining what the function/const/class does and how it should be implemented.
-- Include dbQueries for any file that performs database operations.
-
-If the app uses a database, include a "dbSchema" field with the complete SQL CREATE TABLE statements.`,
-            },
-        ],
-        schema: ARCHITECT_PLAN_SCHEMA,
-        userPrompt: [
-            "Create an ARCHITECT plan with structured file contracts for this request.",
-            `User request:\n${input.userPrompt}`,
-            `Thread context:\n${input.threadContext || "(no prior context)"}`,
-            `Execution mode: ${executionMode}`,
-            `Implementation spec:\n${formatSpecForPrompt(input.spec)}`,
-            formatDiversitySeed(input.diversitySeed),
-            applyFrontendDesignSkill ? FRONTEND_DESIGN_SKILL_PROMPT : "",
-            applyPgliteDatabaseSkill ? PGLITE_DATABASE_SKILL_PROMPT : "",
-            `Current files:\n${buildFileCatalog(input.files)}`,
-            `Repository map summary:\n${repoMapSummary}`,
-        ].join("\n\n"),
-        onPartial: input.onPartial,
-    });
-
-    // Normalize using the standard plan normalizer for task-level fields
-    const normalizedPlan = normalizeArchitectPlanResponse(response.data, input.userPrompt);
-
-    return {
-        plan: {
-            ...normalizedPlan,
-            // Ensure tasks have fileContracts attached if they map to the plan's contracts
-            tasks: normalizedPlan.tasks.map(t => ({
-                ...t,
-                // We don't attach contracts to individual tasks here yet; 
-                // the hydration happens in scaffold/coder phases or via global context
-            }))
-        },
         trace: toModelTrace(response),
     };
 }

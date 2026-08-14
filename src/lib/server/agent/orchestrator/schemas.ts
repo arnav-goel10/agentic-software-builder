@@ -122,47 +122,6 @@ const FILE_CONTRACT_SCHEMA = {
     },
 } as const;
 
-export const ARCHITECT_PLAN_SCHEMA = {
-    type: "object",
-    additionalProperties: true,
-    required: ["summary", "tasks"],
-    properties: {
-        summary: { type: "string", minLength: 1 },
-        dbSchema: { type: "string" },
-        tasks: {
-            type: "array",
-            minItems: 1,
-            items: {
-                type: "object",
-                additionalProperties: true,
-                required: ["id", "title", "instructions", "taskWriteSet", "fileContracts"],
-                properties: {
-                    id: { type: "string", minLength: 1 },
-                    title: { type: "string", minLength: 1 },
-                    instructions: { type: "string", minLength: 1 },
-                    objectiveType: {
-                        type: "string",
-                        enum: ["direct_fix", "supporting_refactor", "verification"],
-                    },
-                    dependsOn: {
-                        type: "array",
-                        items: { type: "string", minLength: 1 },
-                    },
-                    taskWriteSet: {
-                        type: "array",
-                        minItems: 1,
-                        items: { type: "string", minLength: 1 },
-                    },
-                    fileContracts: {
-                        type: "array",
-                        items: FILE_CONTRACT_SCHEMA,
-                    },
-                },
-            },
-        },
-    },
-} as const;
-
 export const SKELETON_SPEC_DAG_SCHEMA = {
     type: "object",
     additionalProperties: true,

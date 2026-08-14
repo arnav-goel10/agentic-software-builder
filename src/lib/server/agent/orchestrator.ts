@@ -36,6 +36,7 @@ import {
   type InvalidFileOperationIssue,
   type ValidationIssue,
   type ValidationResult,
+  type PreviewRiskReport,
   validateSkeletonWorkingTree,
   validateFinalWorkingTree,
 } from "@/lib/server/agent/validation";
@@ -87,6 +88,7 @@ import {
   estimateSpecQualityScore,
   persistRunMemoryCards,
 } from "./orchestrator/context";
+import type { ThreadContextPack } from "./orchestrator/context";
 
 import {
   generateSpec,
@@ -98,6 +100,7 @@ import {
   generateFixDag,
   generateFixOperations,
   generateQaVerdict,
+  generateQaFixOperations,
   generateFinalSummary,
   generateMissingFillRegions,
 } from "./orchestrator/generators";
@@ -108,6 +111,7 @@ import type {
   OperationResult,
   PlanTask,
   QaResponse,
+  QaResult,
   FileContract,
   SkeletonFile,
 } from "./orchestrator/types";
@@ -141,6 +145,7 @@ const MIN_RUNTIME_GATE_TIMEOUT_MS = 30000;
 const MAX_RUNTIME_GATE_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_SKELETON_AUTOFIX_PASSES = 1;
 const DEFAULT_FIX_DAG_MAX_PASSES = 2;
+const DEFAULT_QA_FIX_PASSES = 1;
 
 function parseBooleanEnv(raw: string | undefined, fallback: boolean): boolean {
   if (!raw) {
@@ -233,6 +238,15 @@ function getFixDagMaxPasses(): number {
     DEFAULT_FIX_DAG_MAX_PASSES,
     0,
     6
+  );
+}
+
+function getQaFixMaxPasses(): number {
+  return parseBoundedIntegerEnv(
+    process.env.DEXTER_QA_FIX_PASSES,
+    DEFAULT_QA_FIX_PASSES,
+    0,
+    5
   );
 }
 
@@ -2750,9 +2764,16 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
 
   let blockingIssues: string[] = [];
   let runtimeDiagnostics: string[] = [];
-  let terminalBuild: any = { exitCode: 0, output: "", outputTail: [] };
-  let previewRisk: any = { mode: "conservative", score: 0, reasons: [], blockers: [] };
-  let finalValidationState: any;
+  let terminalBuild: TerminalBuildCheckResult = {
+    passed: true,
+    install: null,
+    build: null,
+    issues: [],
+    diagnostics: [],
+    outputTail: [],
+  };
+  let previewRisk: PreviewRiskReport = { mode: "local", score: 0, reasons: [], blockers: [] };
+  let finalValidationState: Awaited<ReturnType<typeof collectFinalValidationState>> | undefined;
 
   const enableFinalValidation = isFinalValidationEnabled();
   const enableQa = isQaEnabled();
@@ -3010,43 +3031,67 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
   if (signal?.aborted) throw new Error("Run cancelled");
   run = updateRunAndReload(runId, "validating");
 
-  let qaResult: any = {
+  let qaResult: QaResult = {
     qa: {
       score: 100,
+      summary: "QA disabled by configuration",
+      hardBlockers: [],
+      softBlockers: [],
+      warnings: [],
       acceptance: [],
-      feedback: "QA disabled by configuration",
+      suggestedFixes: [],
+      attempt: 1,
+      maxAttempts: 1,
+      blockingDecision: "pass",
     },
-    trace: undefined,
+    trace: { provider: "none/none", usage: null, attempts: [] },
   };
-  let qaContextPack: any = { text: "", stats: { selectedCardIds: [] } };
-  let qaTelemetry: any = { selectedModel: "none", modelCandidates: [], reasoningEnabled: false, phaseTimeoutMs: 0 };
+  let qaContextPack: ThreadContextPack = {
+    text: "",
+    stats: {
+      tokenEstimate: 0,
+      tokenBudget: 0,
+      selectedCardIds: [],
+      droppedCardIds: [],
+      summaryIds: [],
+      recencyTurns: 0,
+      compacted: false,
+    },
+  };
+  let qaTelemetry: {
+    selectedModel: string;
+    modelCandidates: string[];
+    reasoningEnabled: boolean;
+    phaseTimeoutMs: number;
+  } = { selectedModel: "none", modelCandidates: [], reasoningEnabled: false, phaseTimeoutMs: 0 };
   let qaHardBlockers: string[] = blockingIssues;
   let qaSoftBlockers: string[] = [];
   let qaPassed: boolean = qaHardBlockers.length === 0;
 
-  if (!enableQa) {
-    const skippedQaStep = createRunStep({
-      runId,
-      seq: seq++,
-      phase: "qa",
-      status: "complete",
-      title: "Final quality gate",
-      detail: "Final QA phase disabled by configuration",
-      payload: { executionMode },
-    });
-    publishStep(run, skippedQaStep.id);
-  } else {
+  const qaFixMaxPasses = getQaFixMaxPasses();
+
+  // Runs one QA verdict pass, updating the qaResult/qaContextPack/qaTelemetry/
+  // qaHardBlockers/qaSoftBlockers/qaPassed closures above and emitting the
+  // run step + artifacts for it. Reused for the initial verdict and for
+  // re-checking after each QA repair pass below.
+  const runQaVerdictPass = async (
+    attempt: number,
+    maxAttempts: number,
+    stepTitle: string
+  ): Promise<void> => {
     const qaStep = createRunStep({
       runId,
       seq: seq++,
       phase: "qa",
       status: "running",
-      title: "Final quality gate",
+      title: stepTitle,
       detail: "Evaluating final output quality after strict runtime gate pass",
       payload: {
         executionMode,
         validationIssues: blockingIssues,
         runtimeDiagnostics,
+        attempt,
+        maxAttempts,
       },
     });
     publishStep(run, qaStep.id);
@@ -3082,8 +3127,8 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
       spec,
       files: workingFiles,
       diversitySeed: selectedDiversitySeed ?? undefined,
-      attempt: 1,
-      maxAttempts: 1,
+      attempt,
+      maxAttempts,
       validationIssues: blockingIssues,
       runtimeDiagnostics,
       onPartial: (partial) => {
@@ -3138,8 +3183,8 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
         modelCandidates: qaTelemetry.modelCandidates,
         reasoningEnabled: qaTelemetry.reasoningEnabled,
         phaseTimeoutMs: qaTelemetry.phaseTimeoutMs,
-        attempt: 1,
-        maxAttempts: 1,
+        attempt,
+        maxAttempts,
         blockingDecision: qaPassed ? "pass" : "fail",
       },
     });
@@ -3171,6 +3216,103 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
         blockingDecision: qaPassed ? "pass" : "fail",
       },
     });
+  };
+
+  if (!enableQa) {
+    const skippedQaStep = createRunStep({
+      runId,
+      seq: seq++,
+      phase: "qa",
+      status: "complete",
+      title: "Final quality gate",
+      detail: "Final QA phase disabled by configuration",
+      payload: { executionMode },
+    });
+    publishStep(run, skippedQaStep.id);
+  } else {
+    await runQaVerdictPass(1, 1 + qaFixMaxPasses, "Final quality gate");
+
+    // QA repair loop: when the gate fails with hard blockers, give the model
+    // up to DEXTER_QA_FIX_PASSES chances to close them with targeted whole-
+    // file operations before failing the run outright. Each pass reuses the
+    // same safety pipeline as fix-DAG operations (stripPackageManifestOperations
+    // + per-operation isolation inside applyOperationsWithEngineManifest); no
+    // structure locks apply since QA fixes are whole-file ops post-fill.
+    let qaFixPass = 0;
+    while (!qaPassed && qaFixPass < qaFixMaxPasses) {
+      if (signal?.aborted) throw new Error("Run cancelled");
+      qaFixPass += 1;
+      diagnostics.qaFixPasses += 1;
+      run = updateRunAndReload(runId, "repairing");
+
+      const qaFixStep = createRunStep({
+        runId,
+        seq: seq++,
+        phase: "repair",
+        status: "running",
+        title: `QA repair pass ${qaFixPass}`,
+        detail: `Attempting to resolve ${qaHardBlockers.length} hard blocker(s) from the quality gate`,
+        payload: { qaFixPass, hardBlockers: qaHardBlockers, softBlockers: qaSoftBlockers },
+      });
+      publishStep(run, qaFixStep.id);
+
+      const qaFixProviders = resolvePhaseProviders("repair_primary");
+      const qaFixResult = await generateQaFixOperations({
+        providers: qaFixProviders,
+        userPrompt: triggerMessage.content,
+        threadContext: qaContextPack.text,
+        spec,
+        files: workingFiles,
+        qa: { ...qaResult.qa, hardBlockers: qaHardBlockers, softBlockers: qaSoftBlockers },
+        diversitySeed: selectedDiversitySeed ?? undefined,
+        validationIssues: blockingIssues,
+        runtimeDiagnostics,
+      });
+      accumulateProviderDiagnostics(qaFixResult.trace);
+
+      const qaFixApplied = applyOperationsWithEngineManifest(workingFiles, qaFixResult.operations, {
+        phase: "qa_fix",
+      });
+      workingFiles = qaFixApplied.files;
+      const qaFixCounts = countOperationKinds(qaFixApplied.appliedOperations);
+      diagnostics.totalOperations += qaFixApplied.appliedOperations.length;
+      diagnostics.totalUpserts += qaFixCounts.upserts;
+      diagnostics.totalDeletes += qaFixCounts.deletes;
+
+      // Re-run static validation + the terminal build check only if the run
+      // had them enabled in the first place; otherwise leave blockingIssues
+      // as-is and let the next QA verdict pass judge on QA signal alone.
+      if (enableFinalValidation) {
+        finalValidationState = await collectFinalValidationState(workingFiles, runtimeGateTimeoutMs);
+        workingFiles = finalValidationState.validation.files;
+        blockingIssues = finalValidationState.blockingIssues;
+        runtimeDiagnostics = finalValidationState.runtimeDiagnostics;
+        terminalBuild = finalValidationState.terminalBuild;
+        previewRisk = finalValidationState.validation.previewRisk;
+      }
+
+      updateRunStep({
+        stepId: qaFixStep.id,
+        status: "complete",
+        detail: `QA repair pass ${qaFixPass} applied ${qaFixApplied.appliedOperations.length} operation(s)`,
+        payload: {
+          qaFixPass,
+          summary: qaFixResult.summary,
+          operationCount: qaFixApplied.appliedOperations.length,
+          remainingValidationIssues: blockingIssues,
+          runtimeDiagnostics,
+          terminalBuild: terminalResultToPayload(terminalBuild),
+        },
+      });
+      publishStep(run, qaFixStep.id);
+
+      run = updateRunAndReload(runId, "validating");
+      await runQaVerdictPass(
+        qaFixPass + 1,
+        1 + qaFixMaxPasses,
+        `Final quality gate (after repair pass ${qaFixPass})`
+      );
+    }
 
     if (!qaPassed) {
       throw new Error(`Quality gate failed: ${qaHardBlockers.slice(0, 4).join(" | ")}`);
@@ -3260,8 +3402,8 @@ async function executeRunInternal({ runId, signal }: ExecutionInput & { signal?:
     lockedConstraints: spec.requirements,
     hardBlockers: [],
     verifiedFixes: qaResult.qa.acceptance
-      .filter((item: any) => item.status === "pass")
-      .map((item: any) => `${item.criterion}: ${item.evidence}`),
+      .filter((item) => item.status === "pass")
+      .map((item) => `${item.criterion}: ${item.evidence}`),
   });
 
   if (persistedMemoryCardIds.length > 0) {
