@@ -14,6 +14,12 @@ The engine drives a full-stack Next.js build through phases, each with hard gate
 - **Validation and QA**: deterministic checks, final build and runtime gates, repair-candidate selection when a gate fails.
 - **Persistence**: telemetry, snapshot persistence, and filesystem round-trip synchronisation.
 
+### Follow-up runs
+
+The first message in a project always runs the full pipeline above from a neutral scaffold. Every message after that starts from the previous snapshot's working tree, and before planning begins the engine classifies the request with a small model call: `{ mode, scope, reasoning, targetPaths }`. `mode` (`feature_mode` / `followup_fix_mode`) still governs task-count caps the way it always has; `scope` is new — `full_rebuild` treats the whole app as in play, `targeted_edit` means only an identifiable set of existing files should change. A failed or malformed classification call never fails the run: it falls back to a regex heuristic and defaults to `full_rebuild`, so worst case a follow-up just gets the old broad-rebuild behavior.
+
+When scope comes back `targeted_edit`, the skeleton DAG is built as usual but seeded with an explicit rule that unaffected existing files must not appear as nodes. Any DAG node whose path already exists in the working tree then skips skeleton generation and the region-fill pipeline entirely — those are for scaffolding new files from scratch, not editing ones that already work. Instead, the existing file's current full content is sent to a dedicated edit call that returns the complete updated file, which flows through the same operations/validation/fix-DAG machinery as everything else. The net effect: a "add a dark mode toggle" style follow-up regenerates only the file(s) it actually touches, and every other file in the project comes out of the run byte-identical to how it went in.
+
 ## Stack
 
 Next.js (TypeScript), SQLite via better-sqlite3 for run state, Docker harness for isolated builds and checks (`scripts/dev/`).
