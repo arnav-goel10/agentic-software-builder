@@ -3838,6 +3838,34 @@ function normalizeReactQueryPreviousDataGuards(code: string): string {
   );
 }
 
+function convertSqlQuestionPlaceholders(code: string): string {
+  // Mechanical rewrite of SQLite-style `?` placeholders to PostgreSQL `$n`
+  // inside `.query(<literal>, [...])` calls, mirroring exactly the sites
+  // validatePglitePlaceholderStyle flags. `?` inside single-quoted SQL
+  // string literals is left untouched.
+  const queryLiteralPattern = /(\.query\s*\(\s*)([`'"])([\s\S]*?)\2(\s*,\s*\[)/g;
+  return code.replace(queryLiteralPattern, (whole, pre: string, quote: string, sql: string, post: string) => {
+    if (!/\b(select|insert|update|delete|create|alter|drop)\b/i.test(sql) || !/\?/.test(sql)) {
+      return whole;
+    }
+    let counter = 0;
+    let inSingleQuote = false;
+    let rewritten = "";
+    for (const ch of sql) {
+      if (ch === "'") {
+        inSingleQuote = !inSingleQuote;
+        rewritten += ch;
+      } else if (ch === "?" && !inSingleQuote) {
+        counter += 1;
+        rewritten += `$${counter}`;
+      } else {
+        rewritten += ch;
+      }
+    }
+    return `${pre}${quote}${rewritten}${quote}${post}`;
+  });
+}
+
 function normalizeSqlUpdateParamOrder(code: string): string {
   SQL_UPDATE_ID_VALUE_PARAM_ORDER_PATTERN.lastIndex = 0;
   return code.replace(
@@ -4446,6 +4474,15 @@ export function generateDeterministicValidationFixOperations(
         const targets = resolveIssueTargets(issue, (file) => looksLikeCodeFile(file.name));
         const changed = targets.some((file) =>
           queueUpsertIfChanged(file.name, normalizeSqlUpdateParamOrder(file.code))
+        );
+        if (changed) fixedIssueCodes.add(issue.code);
+        break;
+      }
+      case "pglite.sql_placeholder_style": {
+        attemptedIssueCodes.add(issue.code);
+        const targets = resolveIssueTargets(issue, (file) => looksLikeCodeFile(file.name));
+        const changed = targets.some((file) =>
+          queueUpsertIfChanged(file.name, convertSqlQuestionPlaceholders(file.code))
         );
         if (changed) fixedIssueCodes.add(issue.code);
         break;
