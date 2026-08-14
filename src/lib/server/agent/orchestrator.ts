@@ -144,7 +144,7 @@ const DEFAULT_RUNTIME_GATE_TIMEOUT_MS = 120000;
 const MIN_RUNTIME_GATE_TIMEOUT_MS = 30000;
 const MAX_RUNTIME_GATE_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_SKELETON_AUTOFIX_PASSES = 1;
-const DEFAULT_FIX_DAG_MAX_PASSES = 2;
+const DEFAULT_FIX_DAG_MAX_PASSES = 3;
 const DEFAULT_QA_FIX_PASSES = 1;
 
 function parseBooleanEnv(raw: string | undefined, fallback: boolean): boolean {
