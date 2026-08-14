@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Sidebar } from "@/components/sidebar";
-import { TopNav } from "@/components/top-nav";
+import { TopBar } from "@/components/top-bar";
+import { cn } from "@/lib/utils";
 
 type RunItem = {
   id: string;
@@ -20,17 +20,17 @@ type RunItem = {
 function statusBadgeClass(status: string): string {
   switch (status) {
     case "completed":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
+      return "border-[#1a7f37]/20 bg-[#1a7f37]/10 text-[#1a7f37]";
     case "failed":
-      return "border-red-500/30 bg-red-500/10 text-red-200";
+      return "border-[#d1242f]/20 bg-[#d1242f]/10 text-[#d1242f]";
     case "running":
     case "executing":
     case "planning":
     case "validating":
     case "repairing":
-      return "border-cyan-500/30 bg-cyan-500/10 text-cyan-100";
+      return "border-[#0071e3]/20 bg-[#0071e3]/10 text-[#0071e3]";
     default:
-      return "border-white/15 bg-white/5 text-[#C9CBD4]";
+      return "border-black/[0.08] bg-black/[0.03] text-[#6e6e73]";
   }
 }
 
@@ -54,26 +54,25 @@ export default function AgentsPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#0B0B0F]">
-      <Sidebar activeItem="agents" />
-      <TopNav variant="home" />
+    <div className="min-h-screen bg-[#fafafa]">
+      <TopBar variant="marketing" />
 
-      <main className="pl-[72px] pt-20 px-8 pb-8">
-        <div className="max-w-6xl mx-auto">
+      <main className="px-6 py-12">
+        <div className="max-w-5xl mx-auto">
           <div className="mb-6">
-            <h1 className="text-2xl font-semibold text-[#E6E6EB]">Agent Runs</h1>
-            <p className="text-sm text-[#9CA3AF] mt-1">Live and recent build execution history.</p>
+            <h1 className="text-title text-[#1d1d1f]">Run history</h1>
+            <p className="text-[13px] text-[#86868b] mt-1">Every run across every project, newest first.</p>
           </div>
 
           {error ? (
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            <div role="alert" className="mb-4 rounded-[12px] border border-[#d1242f]/20 bg-[#d1242f]/5 px-4 py-3 text-sm text-[#d1242f]">
               {error}
             </div>
           ) : null}
 
-          <div className="overflow-x-auto rounded-2xl border border-white/10 bg-[#111218]">
-            <table className="w-full min-w-[760px] text-sm">
-              <thead className="bg-white/5 text-[#9CA3AF] text-left">
+          <div className="overflow-x-auto rounded-[14px] border border-black/[0.08] bg-white shadow-sm">
+            <table className="w-full min-w-[760px] text-[13px]">
+              <thead className="bg-[#f5f5f7] text-[#6e6e73] text-left">
                 <tr>
                   <th className="px-4 py-3 font-medium">Project</th>
                   <th className="px-4 py-3 font-medium">Status</th>
@@ -84,30 +83,41 @@ export default function AgentsPage() {
               </thead>
               <tbody>
                 {runs.map((run) => (
-                  <tr key={run.id} className="border-t border-white/5 text-[#E6E6EB]">
+                  <tr key={run.id} className="border-t border-black/[0.06] text-[#1d1d1f]">
                     <td className="px-4 py-3">{run.project_name}</td>
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex items-center rounded-md border px-2 py-1 text-xs ${statusBadgeClass(
-                          run.status
-                        )}`}
+                        className={cn(
+                          "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                          statusBadgeClass(run.status)
+                        )}
                       >
                         {run.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-[#9CA3AF]">
-                      <span className="inline-flex max-w-[240px] truncate rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-[#C9CBD4]">
+                    <td className="px-4 py-3 text-[#6e6e73]">
+                      <span className="inline-flex max-w-[240px] truncate rounded-[6px] border border-black/[0.08] bg-[#f5f5f7] px-2 py-0.5 font-mono text-[11px] text-[#6e6e73]">
                         {run.model || "unknown"}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-[#9CA3AF]">{new Date(run.created_at).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-[#6e6e73]">{new Date(run.created_at).toLocaleString()}</td>
                     <td className="px-4 py-3">
-                      <Link className="text-purple-300 hover:text-purple-200" href={`/sandbox?projectId=${run.project_id}`}>
+                      <Link
+                        className="font-medium text-[#0071e3] hover:text-[#0058b0] rounded-[6px]"
+                        href={`/sandbox?projectId=${run.project_id}`}
+                      >
                         Open
                       </Link>
                     </td>
                   </tr>
                 ))}
+                {runs.length === 0 && !error ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-[#86868b]">
+                      No runs yet.
+                    </td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>

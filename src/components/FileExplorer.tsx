@@ -34,16 +34,16 @@ interface FileExplorerProps {
 }
 
 function getFileIcon(name: string) {
-    if (name.endsWith(".tsx")) return <FileCode className="w-4 h-4 text-blue-400" />;
-    if (name.endsWith(".ts")) return <FileCode className="w-4 h-4 text-blue-400" />;
-    if (name.endsWith(".jsx")) return <FileCode className="w-4 h-4 text-yellow-400" />;
-    if (name.endsWith(".js")) return <FileCode className="w-4 h-4 text-yellow-400" />;
-    if (name.endsWith(".css")) return <FileType className="w-4 h-4 text-blue-300" />;
-    if (name.endsWith(".html")) return <FileCode className="w-4 h-4 text-orange-400" />;
-    if (name.endsWith(".json")) return <FileJson className="w-4 h-4 text-yellow-300" />;
-    if (name.endsWith(".md")) return <FileText className="w-4 h-4 text-gray-400" />;
-    if (name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".svg")) return <FileImage className="w-4 h-4 text-purple-400" />;
-    return <FileIcon className="w-4 h-4 text-zinc-500" />;
+    if (name.endsWith(".tsx")) return <FileCode className="w-4 h-4 text-[#0071e3]" />;
+    if (name.endsWith(".ts")) return <FileCode className="w-4 h-4 text-[#0071e3]" />;
+    if (name.endsWith(".jsx")) return <FileCode className="w-4 h-4 text-[#9a6700]" />;
+    if (name.endsWith(".js")) return <FileCode className="w-4 h-4 text-[#9a6700]" />;
+    if (name.endsWith(".css")) return <FileType className="w-4 h-4 text-[#0071e3]/70" />;
+    if (name.endsWith(".html")) return <FileCode className="w-4 h-4 text-[#c2410c]" />;
+    if (name.endsWith(".json")) return <FileJson className="w-4 h-4 text-[#9a6700]/80" />;
+    if (name.endsWith(".md")) return <FileText className="w-4 h-4 text-[#86868b]" />;
+    if (name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".svg")) return <FileImage className="w-4 h-4 text-[#8250df]" />;
+    return <FileIcon className="w-4 h-4 text-[#86868b]" />;
 }
 
 export function FileExplorer({
@@ -135,13 +135,15 @@ function FileTreeNode({
     if (node.type === "directory") {
         return (
             <div>
-                <div
+                <button
+                    type="button"
                     className={cn(
-                        "flex items-center py-0.5 px-1 cursor-pointer hover:bg-zinc-800/50 rounded-sm select-none transition-colors duration-100",
-                        "text-zinc-400 hover:text-zinc-100"
+                        "flex w-full items-center py-1 px-1 cursor-pointer hover:bg-black/[0.04] rounded-[6px] select-none transition-colors duration-100 text-left",
+                        "text-[#6e6e73] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] focus-visible:ring-offset-1"
                     )}
                     style={{ paddingLeft: `${depth * 10 + 4}px` }}
                     onClick={() => setExpanded(!expanded)}
+                    aria-expanded={expanded}
                 >
                     {expanded ? (
                         <ChevronDown className="w-3 h-3 mr-1 shrink-0 opacity-70" />
@@ -149,12 +151,12 @@ function FileTreeNode({
                         <ChevronRight className="w-3 h-3 mr-1 shrink-0 opacity-70" />
                     )}
                     {expanded ? (
-                        <FolderOpen className="w-3.5 h-3.5 mr-1.5 text-blue-400 fill-blue-400/10" />
+                        <FolderOpen className="w-3.5 h-3.5 mr-1.5 text-[#0071e3]/70" />
                     ) : (
-                        <Folder className="w-3.5 h-3.5 mr-1.5 text-blue-400 fill-blue-400/10" />
+                        <Folder className="w-3.5 h-3.5 mr-1.5 text-[#0071e3]/70" />
                     )}
                     <span className="truncate">{node.name}</span>
-                </div>
+                </button>
                 {expanded && (
                     <div className="relative">
                         {node.children?.map((child) => (
@@ -173,13 +175,18 @@ function FileTreeNode({
     }
 
     return (
-        <div
+        <button
+            type="button"
             className={cn(
-                "flex items-center py-0.5 px-1 cursor-pointer hover:bg-zinc-800/50 rounded-sm transition-colors duration-100",
-                isSelected ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:text-zinc-200"
+                "flex w-full items-center py-1 px-1 cursor-pointer rounded-[6px] transition-colors duration-100 text-left",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] focus-visible:ring-offset-1",
+                isSelected
+                    ? "bg-[#0071e3]/10 text-[#0071e3]"
+                    : "text-[#6e6e73] hover:bg-black/[0.04] hover:text-[#1d1d1f]"
             )}
             style={{ paddingLeft: `${depth * 10 + 20}px` }}
             onClick={() => onSelect(node.path)}
+            aria-current={isSelected ? "true" : undefined}
         >
             <div className="mr-1.5 shrink-0">
                 {getFileIcon(node.name)}
@@ -187,6 +194,6 @@ function FileTreeNode({
             <span className={cn("truncate", isSelected && "font-semibold")}>
                 {node.name}
             </span>
-        </div>
+        </button>
     );
 }
