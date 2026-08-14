@@ -1164,7 +1164,7 @@ export async function generateFixDag(input: {
             "- Keep dependsOn accurate.",
             "- taskWriteSet must list only files actually to modify.",
             "- issues list for each task should be subsets of reported issues.",
-            "- CRITICAL EXPORT MISMATCH: If an issue says 'Local import X is missing from Y', you MUST ensure your taskWriteSet includes either the importer OR the exporter file so the operations phase can fix the named vs default export mismatch.",
+            "- CRITICAL EXPORT MISMATCH: If an issue says 'Local import X is missing from Y' or 'Import X is not exported by Y', ONE task MUST include BOTH the importer file and the exporter file Y in its taskWriteSet, so the operations phase can see and reconcile both sides together. Prefer implementing the missing export in Y over deleting the importer's usage.",
         ].join("\n\n"),
         onPartial: input.onPartial,
         mockFixtureKey: "fix_dag",
@@ -1194,6 +1194,31 @@ export async function generateFixOperations(input: {
         threadContext: input.threadContext,
         spec: input.spec,
     });
+    // The fixer must see real code: full sources for every write-set file,
+    // plus read-only sources for any file an issue names (the other side of
+    // an import/export mismatch), or it is repairing blind.
+    const issueReferencedPaths = new Set<string>();
+    for (const issue of input.task.issues) {
+        for (const match of issue.matchAll(/"((?:src\/)?[A-Za-z0-9_\-./]+\.(?:jsx?|tsx?|css|json|mjs|cjs))"/g)) {
+            issueReferencedPaths.add(match[1]);
+        }
+    }
+    const fileByName = new Map(input.files.map((file) => [file.name, file]));
+    const sourcePaths = Array.from(
+        new Set([...input.task.taskWriteSet, ...issueReferencedPaths])
+    ).filter((pathName) => fileByName.has(pathName));
+    const taskSourcesSection = sourcePaths
+        .map((pathName) => {
+            const code = fileByName.get(pathName)?.code ?? "";
+            const capped =
+                code.length > 8000 ? `${code.slice(0, 8000)}\n// ... truncated ...` : code;
+            const access = input.task.taskWriteSet.includes(pathName)
+                ? "WRITABLE"
+                : "READ-ONLY reference";
+            return `--- ${pathName} (${access}) ---\n${capped}`;
+        })
+        .join("\n\n");
+
     const response = await callStructuredJson<OperationResponse>({
         providers: input.providers,
         system: [
@@ -1213,6 +1238,7 @@ export async function generateFixOperations(input: {
             `Task write-set:\n${input.task.taskWriteSet.map((path) => `- ${path}`).join("\n")}`,
             `Task issues:\n${input.task.issues.map((issue) => `- ${issue}`).join("\n")}`,
             `Current files:\n${buildFileCatalog(input.files)}`,
+            `File sources for this task:\n${taskSourcesSection || "(no matching sources found)"}`,
             "Rules:",
             "- Only touch taskWriteSet files.",
             "- Keep changes minimal and issue-targeted.",
@@ -1220,6 +1246,7 @@ export async function generateFixOperations(input: {
             "- Match file language by extension; never add TypeScript syntax to .js/.jsx/.mjs/.cjs files.",
             "- Do not modify package.json.",
             "- If an issue says 'Local import X is missing from Y', first check if it's a named vs default mismatch and correct the syntax. If X simply does not exist in Y at all, you MUST either add/implement X inside Y, OR remove the usage/import of X from the importer file.",
+            "- SQL placeholders: PGlite requires PostgreSQL numbered placeholders ($1, $2, ...). Converting SQLite-style ? placeholders is mechanical: replace each ? in order with the next number, leaving the params array untouched.",
             "- If an issue mentions 'PGlite schema uses CREATE TABLE IF NOT EXISTS without column migration guards', ensure your database initialization clearly returns the `db` variable via a loose `return db;` statement at the end of the init block so the system auto-migration injector can take over. If you must fix it manually, use `information_schema.columns` to check for missing columns and run `ALTER TABLE ADD COLUMN`.",
         ].join("\n\n"),
         onPartial: input.onPartial,

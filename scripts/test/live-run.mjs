@@ -55,13 +55,13 @@ function printRunSteps(runId) {
 }
 
 const BRIEF =
-  "Build a counter app: a big count display, increment and decrement buttons, a reset button, and a small history list showing every change.";
+  "Build a notes app with folders: create and delete folders, add notes inside a folder, pin important notes to the top, and search across every note with live results.";
 
 async function main() {
   console.log(`[live-run] Provider: ${process.env.DEXTER_MODEL_PROVIDER}`);
   console.log(`[live-run] Scratch DB: ${dbPath}`);
-  const project = createProject({ name: "Live Counter Run" });
-  const thread = createThread({ projectId: project.id, title: "Build a counter app" });
+  const project = createProject({ name: "Live Notes Run" });
+  const thread = createThread({ projectId: project.id, title: "Build a notes app" });
   const triggerMessage = createMessage({ threadId: thread.id, role: "user", content: BRIEF });
   const run = createRun({
     projectId: project.id,
