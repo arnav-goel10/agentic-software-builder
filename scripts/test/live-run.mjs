@@ -82,8 +82,8 @@ async function main() {
   check("run status is completed", finishedRun?.status === "completed", `actual=${finishedRun?.status} error=${finishedRun?.error ?? "(none)"}`);
 
   const snapshot = getCurrentSnapshotForProject(project.id);
-  const files = snapshot?.files ?? [];
-  const names = files.map((f) => f.path);
+  const files = snapshot ? JSON.parse(snapshot.files_json) : [];
+  const names = files.map((f) => f.name ?? f.path);
   console.log(`[live-run] Snapshot has ${files.length} files: ${names.join(", ")}`);
   for (const wanted of ["index.html", "src/main.jsx", "src/index.css", "package.json", "src/App.jsx"]) {
     check(`snapshot includes ${wanted}`, names.includes(wanted));
