@@ -51,9 +51,9 @@ function run() {
         /while \(enableFixDag && blockingIssues\.length > 0 && remediationPass < fixDagMaxPasses\)/,
     },
     {
-      name: "final_qa_single_pass",
+      name: "final_qa_bounded_repair_loop",
       pattern:
-        /title:\s*"Final quality gate"[\s\S]*generateQaVerdict\([\s\S]*attempt:\s*1,[\s\S]*maxAttempts:\s*1/,
+        /await runQaVerdictPass\(1, 1 \+ qaFixMaxPasses, "Final quality gate"\)[\s\S]*while \(!qaPassed && qaFixPass < qaFixMaxPasses\)[\s\S]*generateQaFixOperations\(/,
     },
     {
       name: "legacy_execute_task_removed",
