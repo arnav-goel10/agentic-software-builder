@@ -2055,10 +2055,46 @@ export function formatProviderModelLabel(provider: ConfiguredModelProvider): str
   return `${provider.provider}/${provider.model}`;
 }
 
+// Process-wide record of every structured model call: phase, model, prompt
+// and response size, and provider-reported token usage. The benchmark runs
+// one task per process and reads this to report token volume and cost per
+// run. Character counts are kept alongside tokens because the mock provider
+// reports no usage, and they are what a cost estimate for a real model is
+// built from.
+export type ModelCallRecord = {
+  phase: ModelProviderPhase;
+  provider: ModelProviderId;
+  model: string;
+  ok: boolean;
+  durationMs: number;
+  inputChars: number;
+  outputChars: number;
+  usage?: ProviderUsage;
+};
+
+const modelCallLedger: ModelCallRecord[] = [];
+
+export function getModelCallLedger(): ModelCallRecord[] {
+  return modelCallLedger.slice();
+}
+
+export function resetModelCallLedger(): void {
+  modelCallLedger.length = 0;
+}
+
+function measurePromptChars(input: StructuredPromptInput): number {
+  const system =
+    typeof input.systemInstruction === "string"
+      ? input.systemInstruction.length
+      : input.systemInstruction.reduce((sum, part) => sum + part.text.length, 0);
+  return system + input.userPrompt.length + JSON.stringify(input.schema).length;
+}
+
 export async function callStructuredJsonWithFallback<T>(
   providers: ConfiguredModelProvider[],
   input: StructuredPromptInput
 ): Promise<ProviderCallResult<T>> {
+  const inputChars = measurePromptChars(input);
   const attempts: ProviderAttempt[] = [];
   let lastError: ProviderError | null = null;
   const MAX_SCHEMA_RECOVERY_ATTEMPTS_PER_PROVIDER = 2;
@@ -2088,6 +2124,16 @@ export async function callStructuredJsonWithFallback<T>(
               ? `cache_hit cached_input_tokens=${result.usage?.cachedInputTokens ?? 0}${diagnosticsSuffix}`
               : `cache_miss${diagnosticsSuffix}`,
         });
+        modelCallLedger.push({
+          phase: provider.phase,
+          provider: provider.provider,
+          model: provider.model,
+          ok: true,
+          durationMs: Math.max(1, nowMs() - startedAt),
+          inputChars,
+          outputChars: JSON.stringify(result.data ?? null).length,
+          usage: result.usage,
+        });
 
         return {
           ...result,
@@ -2102,6 +2148,16 @@ export async function callStructuredJsonWithFallback<T>(
         const isFinalProviderAttempt =
           providerAttempt >= MAX_SCHEMA_RECOVERY_ATTEMPTS_PER_PROVIDER ||
           !isSchemaLikeFailure(message);
+        // A failed call still bills its prompt on a real provider.
+        modelCallLedger.push({
+          phase: provider.phase,
+          provider: provider.provider,
+          model: provider.model,
+          ok: false,
+          durationMs: Math.max(1, nowMs() - startedAt),
+          inputChars,
+          outputChars: 0,
+        });
 
         if (!isFinalProviderAttempt) {
           attempts.push({
