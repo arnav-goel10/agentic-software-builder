@@ -39,7 +39,7 @@ function run() {
     },
     {
       name: "skeleton_validation_uses_skeleton_validator",
-      pattern: /validateSkeletonWorkingTree\(workingFiles,\s*allFileContracts/,
+      pattern: /validateSkeletonWorkingTree\(workingFiles,\s*skeletonValidationContracts/,
     },
     {
       name: "final_validation_uses_final_validator",
