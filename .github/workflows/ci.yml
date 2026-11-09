@@ -12,3 +12,7 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run build
+      - run: npm run qa:wireup
+      - run: npm run test:loop
+      - run: npm run test:bench-judge
+      - run: npm run bench:stub -- --out bench-results/ci
