@@ -14,7 +14,7 @@ The harness does not trust the engine's own report. Steps 2 to 4 repeat its buil
 ```bash
 npm ci
 
-# Stub model, no keys, no cost, about 15 s. Replays the recorded fixtures
+# Stub model, no keys, no cost, about 20 s. Replays the recorded fixtures
 # in scripts/test/fixtures through the real engine and real npm.
 npm run bench:stub
 
@@ -58,20 +58,22 @@ Before any task runs, a preflight checks that the provider is configured and rea
 
 The stub run checks the harness, the engine's control flow and the npm and smoke steps. It does not measure model quality, because the model's answers are recorded. The 30-task number needs a live model.
 
-## Why the February report said 0 of 30
+## Bugs the new harness caught
 
-The report that used to sit in `artifacts/benchmarks/` (removed in this change, still in git history) recorded 30 failures, all with the error `fetch failed`. The run never reached the engine or a model:
+Both would have failed real runs.
+
+- **A retired model in the default config.** `.env.example` set the coder phase to `minimax/minimax-m2.1:nitro`, which OpenRouter no longer lists. Every coder call would have failed. The preflight now catches this (`OpenRouter no longer lists: minimax/minimax-m2.1:nitro`), and the default is `minimax/minimax-m2.5:nitro`.
+- **Express apps crashed on their first database query.** The engine tells the model to store server-side PGlite data in `./data/<name>`. PGlite creates only the last directory, so on a fresh checkout the first query failed with `ENOENT: mkdir .../data/standup-db` and the API returned 500. The engine's `check:server` gate only imports the server modules, so it missed this. The new smoke test calls the API and caught it (`GET /api/updates -> 500`). The fix is in the engine-owned `server/index.js` bootstrap, which now creates `./data` before loading the app. After the fix the same run passes (`/api/health 200, /api/updates 200`).
+
+## What the old 0 of 30 report measured
+
+The report that used to sit in `artifacts/benchmarks/` (since removed, it remains in git history) recorded 30 failures, all with the error `fetch failed`. The run never reached the engine or a model:
 
 - All 30 entries have `projectId: null` and `durationMs: 0`, and the whole run took 42 ms (`createdAt` 1770882297003 to `finishedAt` 1770882297045). `fetch failed` is what Node's `fetch` throws when nothing is listening. The first request of each task, `POST /api/projects` to `http://localhost:3000`, was refused because the Next.js server was not running.
 - The old harness (`scripts/bench/run-v35-benchmark.mjs`) drove the engine over HTTP, so it needed a separately started server. It had no preflight. It caught the connection error per task and recorded it as a run with status `failed`, so a dead endpoint looked like 30 engine failures.
 - Its success test was the run's status string alone. It never installed, built or ran the generated app.
 
-So the 0 of 30 said nothing about the engine, the model or timeouts. It was a harness bug. The new harness fixes it at the root: the engine runs in-process (no server to forget), a failed preflight records nothing, harness errors get their own outcome, and success means the app works.
-
-Two more problems came up while rebuilding it. Both would have failed real runs today:
-
-- **A retired model in the default config.** `.env.example` set the coder phase to `minimax/minimax-m2.1:nitro`, which OpenRouter no longer lists. Every coder call would have failed. The preflight now catches this (`OpenRouter no longer lists: minimax/minimax-m2.1:nitro`), and the default is `minimax/minimax-m2.5:nitro`.
-- **Express apps crashed on their first database query.** The engine tells the model to store server-side PGlite data in `./data/<name>`. PGlite creates only the last directory, so on a fresh checkout the first query failed with `ENOENT: mkdir .../data/standup-db` and the API returned 500. The engine's `check:server` gate only imports the server modules, so it missed this. The new smoke test calls the API and caught it (`GET /api/updates -> 500`). The fix is in the engine-owned `server/index.js` bootstrap, which now creates `./data` before loading the app. After the fix the same run passes (`/api/health 200, /api/updates 200`).
+So the 0 of 30 said nothing about the engine, the model or timeouts. It was a harness bug. The new harness removes each cause: the engine runs in-process (no server to forget), a failed preflight records nothing, harness errors get their own outcome, and success means the app works.
 
 ## Cost of a full 30-task run
 
