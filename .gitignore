@@ -48,3 +48,7 @@ data/
 sqlite.db
 .next/
 node_modules/
+
+# benchmark: keep reports and logs, not the generated apps
+bench-results/*/*/app/
+bench-results/*/*/engine.sqlite*

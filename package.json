@@ -15,7 +15,9 @@
     "refresh": "docker compose stop app && docker compose up --build --force-recreate app",
     "logs": "docker compose logs -f app",
     "nuke": "docker rm -f hateable-app-1 2>/dev/null || true && docker compose down -v --remove-orphans && docker compose up --build -d",
-    "benchmark:v35": "node scripts/bench/run-v35-benchmark.mjs"
+    "bench": "node scripts/bench/run-benchmark.mjs",
+    "bench:stub": "node scripts/bench/run-benchmark.mjs --provider mock --tasks scripts/bench/tasks-stub.json",
+    "test:bench-judge": "node scripts/bench/verify-selftest.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",

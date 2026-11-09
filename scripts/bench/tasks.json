@@ -1,0 +1,152 @@
+[
+  {
+    "id": "site-01",
+    "category": "marketing_personal",
+    "brief": "Create a portfolio website for a full-stack engineer with project case studies, testimonials, and a contact form."
+  },
+  {
+    "id": "site-02",
+    "category": "marketing_personal",
+    "brief": "Build a personal brand landing page for a product designer with blog preview cards and speaking highlights."
+  },
+  {
+    "id": "site-03",
+    "category": "marketing_personal",
+    "brief": "Create a SaaS marketing site for an AI note-taking app with pricing, FAQ, and waitlist capture."
+  },
+  {
+    "id": "site-04",
+    "category": "marketing_personal",
+    "brief": "Build a startup homepage for a recruiting platform with hero, feature grid, and conversion-focused CTA sections."
+  },
+  {
+    "id": "site-05",
+    "category": "marketing_personal",
+    "brief": "Create an agency website with service packages, client logos, and project gallery pages."
+  },
+  {
+    "id": "site-06",
+    "category": "marketing_personal",
+    "brief": "Build a personal coaching website with testimonials, session packages, and booking interest form."
+  },
+  {
+    "id": "site-07",
+    "category": "marketing_personal",
+    "brief": "Create a developer community landing page with event calendar teaser and newsletter signup."
+  },
+  {
+    "id": "site-08",
+    "category": "marketing_personal",
+    "brief": "Build a modern restaurant landing site with menu sections, reservation flow mock, and gallery."
+  },
+  {
+    "id": "site-09",
+    "category": "marketing_personal",
+    "brief": "Create a launch page for a browser extension with feature demos, changelog, and CTA buttons."
+  },
+  {
+    "id": "site-10",
+    "category": "marketing_personal",
+    "brief": "Build a creative studio portfolio site with animated section transitions and strong typographic hierarchy."
+  },
+  {
+    "id": "crud-01",
+    "category": "crud_dashboard",
+    "brief": "Build a project management dashboard with task CRUD, status columns, and team member filters."
+  },
+  {
+    "id": "crud-02",
+    "category": "crud_dashboard",
+    "brief": "Create an inventory tracking app with product CRUD, stock alerts, and category management."
+  },
+  {
+    "id": "crud-03",
+    "category": "crud_dashboard",
+    "brief": "Build a customer support ticket dashboard with ticket CRUD, priorities, and assignment workflow."
+  },
+  {
+    "id": "crud-04",
+    "category": "crud_dashboard",
+    "brief": "Create an HR admin dashboard with employee records CRUD, departments, and role-based views."
+  },
+  {
+    "id": "crud-05",
+    "category": "crud_dashboard",
+    "brief": "Build a content calendar app with post CRUD, schedule metadata, and publishing status lanes."
+  },
+  {
+    "id": "crud-06",
+    "category": "crud_dashboard",
+    "brief": "Create a sales pipeline dashboard with lead CRUD, stage transitions, and performance cards."
+  },
+  {
+    "id": "crud-07",
+    "category": "crud_dashboard",
+    "brief": "Build a clinic appointment manager with patient CRUD, appointment scheduling, and history timeline."
+  },
+  {
+    "id": "crud-08",
+    "category": "crud_dashboard",
+    "brief": "Create a school admin panel with classes CRUD, attendance records, and student summaries."
+  },
+  {
+    "id": "crud-09",
+    "category": "crud_dashboard",
+    "brief": "Build an event management dashboard with events CRUD, attendee lists, and ticket status."
+  },
+  {
+    "id": "crud-10",
+    "category": "crud_dashboard",
+    "brief": "Create a bug tracking tool with issue CRUD, severity filters, and sprint board views."
+  },
+  {
+    "id": "data-01",
+    "category": "fintech_data_heavy",
+    "brief": "Build a fintech app with crypto portfolio tracking, transaction history, and allocation analytics."
+  },
+  {
+    "id": "data-02",
+    "category": "fintech_data_heavy",
+    "brief": "Create a budgeting dashboard with category spend analysis, monthly comparisons, and trend charts."
+  },
+  {
+    "id": "data-03",
+    "category": "fintech_data_heavy",
+    "brief": "Build a stock watchlist app with holdings management, gain/loss summaries, and sector breakdowns."
+  },
+  {
+    "id": "data-04",
+    "category": "fintech_data_heavy",
+    "brief": "Create a subscription analytics dashboard with MRR, churn trends, and cohort-style breakdown cards."
+  },
+  {
+    "id": "data-05",
+    "category": "fintech_data_heavy",
+    "brief": "Build a revenue intelligence app with invoice tracking, payment status, and KPI panels."
+  },
+  {
+    "id": "data-06",
+    "category": "fintech_data_heavy",
+    "brief": "Create a risk monitoring dashboard with anomaly flags, threshold alerts, and timeline logs."
+  },
+  {
+    "id": "data-07",
+    "category": "fintech_data_heavy",
+    "brief": "Build a personal investing app with goals, recurring contributions, and portfolio performance insights."
+  },
+  {
+    "id": "data-08",
+    "category": "fintech_data_heavy",
+    "brief": "Create an operations analytics dashboard with throughput KPIs, bottleneck diagnostics, and trend visualizations."
+  },
+  {
+    "id": "data-09",
+    "category": "fintech_data_heavy",
+    "brief": "Build a logistics data dashboard with shipment states, delays analysis, and route summaries."
+  },
+  {
+    "id": "data-10",
+    "category": "fintech_data_heavy",
+    "brief": "Create a marketplace analytics app with seller metrics, conversion funnels, and retention snapshots."
+  }
+]

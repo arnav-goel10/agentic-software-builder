@@ -1,0 +1,14 @@
+[
+  {
+    "id": "stub-todo",
+    "category": "stub",
+    "brief": "Build a simple todo app where I can add a task, mark it complete, and remove it from the list.",
+    "mockFixtures": "scripts/test/fixtures/todo-app"
+  },
+  {
+    "id": "stub-standup-fullstack",
+    "category": "stub",
+    "brief": "Team standup tracker: add updates via an API, list them for the team.",
+    "mockFixtures": "scripts/test/fixtures/standup-fullstack"
+  }
+]
