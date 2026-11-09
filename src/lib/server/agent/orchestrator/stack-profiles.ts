@@ -49,7 +49,15 @@ export function buildServerBootstrapFile(): GeneratedFile {
   return {
     name: ENGINE_SERVER_BOOTSTRAP_PATH,
     language: "javascript",
-    code: `import { app } from "./app.js";
+    code: `import { mkdirSync } from "node:fs";
+
+// Server-side PGlite stores its database under ./data (see the backend
+// rules). PGlite creates only the last path segment, so on a fresh checkout
+// the first query fails with ENOENT unless the parent exists. Create it
+// before app.js and its db module load.
+mkdirSync("data", { recursive: true });
+
+const { app } = await import("./app.js");
 
 const port = process.env.PORT ? Number(process.env.PORT) : 3001;
 
@@ -106,7 +114,7 @@ export function buildStackProfileGuidance(stackProfile: StackProfile): string {
   }
   return `Stack profile: express-fullstack.
 - This OVERRIDES the default "never use Express" constraint for this project only: server/app.js (Express, ESM) is the sanctioned backend entrypoint and is model-owned; import and configure express there, mount /api/* routes, and export the app (e.g. "export const app = express();").
-- PGlite still applies but runs SERVER-SIDE inside server/db.js — use a plain filesystem directory path (e.g. new PGlite("./data/app-db")), never idb:// (that scheme is browser-only IndexedDB and does not exist in Node).
+- PGlite still applies but runs SERVER-SIDE inside server/db.js: use a plain filesystem directory path directly under ./data/ (e.g. new PGlite("./data/app-db")); the engine-owned server/index.js creates ./data before loading the app, but no deeper parent directories. Never idb:// (that scheme is browser-only IndexedDB and does not exist in Node).
 - The frontend (src/**) must NOT import express or PGlite directly, and must NOT read an env var for a base API URL — call the backend via same-origin fetch("/api/...") only. The dev-time Vite proxy and the production Express static-serve both make /api same-origin.
 - server/**/*.js files are plain Node ESM: no JSX, no React/React-DOM imports, no window/document references, no TypeScript syntax even though the extension is .js.
 - ${ENGINE_SERVER_BOOTSTRAP_PATH} already exists and is engine-owned (imports server/app.js and calls app.listen() outside the check:server smoke test) — do not create or edit it.`;
