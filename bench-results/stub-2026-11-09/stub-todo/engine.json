@@ -1,0 +1,157 @@
+{
+  "taskId": "stub-todo",
+  "provider": "mock",
+  "status": "completed",
+  "error": null,
+  "durationMs": 5532,
+  "steps": [
+    {
+      "phase": "spec",
+      "status": "complete",
+      "title": "Write product spec",
+      "detail": "Defined 4 acceptance criteria"
+    },
+    {
+      "phase": "architect",
+      "status": "complete",
+      "title": "Plan outline",
+      "detail": "Planned 1 non-executing tasks"
+    },
+    {
+      "phase": "scaffold",
+      "status": "complete",
+      "title": "Skeleton DAG spec",
+      "detail": "Skeleton DAG: 2 nodes / 2 contracts"
+    },
+    {
+      "phase": "scaffold",
+      "status": "complete",
+      "title": "Generate skeleton files",
+      "detail": "Generated 2 skeleton files"
+    },
+    {
+      "phase": "validate",
+      "status": "complete",
+      "title": "Validate skeleton contracts",
+      "detail": "Skeleton validation passed"
+    },
+    {
+      "phase": "coder",
+      "status": "complete",
+      "title": "Fill function bodies in parallel",
+      "detail": "Filled 2 files with 2 operation(s)"
+    },
+    {
+      "phase": "validate",
+      "status": "complete",
+      "title": "Post-fill validation + runtime gate",
+      "detail": "Validation/runtime gate passed"
+    },
+    {
+      "phase": "qa",
+      "status": "complete",
+      "title": "Final quality gate",
+      "detail": "Final quality gate passed"
+    },
+    {
+      "phase": "finalize",
+      "status": "complete",
+      "title": "Persist snapshot and publish preview",
+      "detail": "Saved snapshot with 9 files"
+    }
+  ],
+  "files": [
+    "index.html",
+    "package.json",
+    "postcss.config.js",
+    "src/App.jsx",
+    "src/components/TodoList.jsx",
+    "src/index.css",
+    "src/main.jsx",
+    "tailwind.config.js",
+    "vite.config.js"
+  ],
+  "modelCalls": [
+    {
+      "phase": "spec",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 12476,
+      "outputChars": 843
+    },
+    {
+      "phase": "architect",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 15581,
+      "outputChars": 456
+    },
+    {
+      "phase": "architect",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 19898,
+      "outputChars": 2091
+    },
+    {
+      "phase": "scaffold",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 18274,
+      "outputChars": 345
+    },
+    {
+      "phase": "scaffold",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 18401,
+      "outputChars": 714
+    },
+    {
+      "phase": "coder",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 18107,
+      "outputChars": 574
+    },
+    {
+      "phase": "coder",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 2,
+      "inputChars": 18123,
+      "outputChars": 1315
+    },
+    {
+      "phase": "qa",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 2,
+      "inputChars": 16365,
+      "outputChars": 308
+    },
+    {
+      "phase": "finalize",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 8088,
+      "outputChars": 147
+    }
+  ]
+}

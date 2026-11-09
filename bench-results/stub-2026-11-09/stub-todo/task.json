@@ -1,0 +1,6 @@
+{
+  "id": "stub-todo",
+  "category": "stub",
+  "brief": "Build a simple todo app where I can add a task, mark it complete, and remove it from the list.",
+  "mockFixtures": "scripts/test/fixtures/todo-app"
+}

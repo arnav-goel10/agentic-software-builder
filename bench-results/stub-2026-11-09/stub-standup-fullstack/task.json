@@ -1,0 +1,6 @@
+{
+  "id": "stub-standup-fullstack",
+  "category": "stub",
+  "brief": "Team standup tracker: add updates via an API, list them for the team.",
+  "mockFixtures": "scripts/test/fixtures/standup-fullstack"
+}

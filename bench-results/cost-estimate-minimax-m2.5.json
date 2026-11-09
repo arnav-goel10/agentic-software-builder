@@ -1,0 +1,60 @@
+{
+  "measuredFrom": "bench-results/stub-2026-11-09/summary.json",
+  "model": "minimax/minimax-m2.5",
+  "pricesFetchedAt": "2026-11-09T14:42:03.654Z",
+  "priceUsedPerMillion": {
+    "provider": "GMICloud",
+    "inPerM": 0.3,
+    "outPerM": 1.2
+  },
+  "allEndpoints": [
+    {
+      "provider": "Venice",
+      "inPerM": 0.27,
+      "outPerM": 0.95
+    },
+    {
+      "provider": "StreamLake",
+      "inPerM": 0.27,
+      "outPerM": 1.08
+    },
+    {
+      "provider": "AtlasCloud",
+      "inPerM": 0.295,
+      "outPerM": 1.2
+    },
+    {
+      "provider": "GMICloud",
+      "inPerM": 0.3,
+      "outPerM": 1.2
+    },
+    {
+      "provider": "DigitalOcean",
+      "inPerM": 0.3,
+      "outPerM": 1.2
+    },
+    {
+      "provider": "Novita",
+      "inPerM": 0.3,
+      "outPerM": 1.2
+    }
+  ],
+  "charsPerToken": 3.5,
+  "perTask": {
+    "low": {
+      "inputTokens": 56461.28571428572,
+      "outputTokens": 3131.8571428571427,
+      "usd": 0.020696614285714288
+    },
+    "high": {
+      "inputTokens": 225845.14285714287,
+      "outputTokens": 60000,
+      "usd": 0.13975354285714287
+    }
+  },
+  "tasks": 30,
+  "totalUsd": {
+    "low": 0.6208984285714286,
+    "high": 4.192606285714286
+  }
+}

@@ -1,0 +1,215 @@
+{
+  "taskId": "stub-standup-fullstack",
+  "provider": "mock",
+  "status": "completed",
+  "error": null,
+  "durationMs": 2957,
+  "steps": [
+    {
+      "phase": "spec",
+      "status": "complete",
+      "title": "Write product spec",
+      "detail": "Defined 3 acceptance criteria"
+    },
+    {
+      "phase": "architect",
+      "status": "complete",
+      "title": "Plan outline",
+      "detail": "Planned 1 non-executing tasks"
+    },
+    {
+      "phase": "scaffold",
+      "status": "complete",
+      "title": "Skeleton DAG spec",
+      "detail": "Skeleton DAG: 5 nodes / 5 contracts"
+    },
+    {
+      "phase": "scaffold",
+      "status": "complete",
+      "title": "Generate skeleton files",
+      "detail": "Generated 5 skeleton files"
+    },
+    {
+      "phase": "validate",
+      "status": "complete",
+      "title": "Validate skeleton contracts",
+      "detail": "Skeleton validation passed"
+    },
+    {
+      "phase": "coder",
+      "status": "complete",
+      "title": "Fill function bodies in parallel",
+      "detail": "Filled 5 files with 5 operation(s)"
+    },
+    {
+      "phase": "validate",
+      "status": "complete",
+      "title": "Post-fill validation + runtime gate",
+      "detail": "Validation/runtime gate passed"
+    },
+    {
+      "phase": "qa",
+      "status": "complete",
+      "title": "Final quality gate",
+      "detail": "Final quality gate passed"
+    },
+    {
+      "phase": "finalize",
+      "status": "complete",
+      "title": "Persist snapshot and publish preview",
+      "detail": "Saved snapshot with 13 files"
+    }
+  ],
+  "files": [
+    "index.html",
+    "package.json",
+    "postcss.config.js",
+    "server/app.js",
+    "server/db.js",
+    "server/index.js",
+    "server/routes/updates.js",
+    "src/App.jsx",
+    "src/components/UpdatesList.jsx",
+    "src/index.css",
+    "src/main.jsx",
+    "tailwind.config.js",
+    "vite.config.js"
+  ],
+  "modelCalls": [
+    {
+      "phase": "spec",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 12426,
+      "outputChars": 1404
+    },
+    {
+      "phase": "architect",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 13779,
+      "outputChars": 682
+    },
+    {
+      "phase": "architect",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 19042,
+      "outputChars": 6028
+    },
+    {
+      "phase": "scaffold",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 16490,
+      "outputChars": 638
+    },
+    {
+      "phase": "scaffold",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 16095,
+      "outputChars": 313
+    },
+    {
+      "phase": "scaffold",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 16392,
+      "outputChars": 546
+    },
+    {
+      "phase": "scaffold",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 16368,
+      "outputChars": 1311
+    },
+    {
+      "phase": "scaffold",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 16335,
+      "outputChars": 320
+    },
+    {
+      "phase": "coder",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 18827,
+      "outputChars": 442
+    },
+    {
+      "phase": "coder",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 18913,
+      "outputChars": 663
+    },
+    {
+      "phase": "coder",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 3,
+      "inputChars": 18901,
+      "outputChars": 1145
+    },
+    {
+      "phase": "coder",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 2,
+      "inputChars": 18808,
+      "outputChars": 894
+    },
+    {
+      "phase": "coder",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 18902,
+      "outputChars": 252
+    },
+    {
+      "phase": "qa",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 20496,
+      "outputChars": 329
+    },
+    {
+      "phase": "finalize",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 8142,
+      "outputChars": 163
+    }
+  ]
+}

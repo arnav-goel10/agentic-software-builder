@@ -1,0 +1,6 @@
+
+$ node_modules/.bin/tsx scripts/bench/run-task.mjs bench-results/stub-2026-11-09/stub-todo/task.json bench-results/stub-2026-11-09/stub-todo   (cwd .)
+[task stub-todo] run=ab2bf4f1-a2d9-41f0-a521-3c3d4a3f95d6 provider=mock
+[task stub-todo] engine status=completed files=9 calls=9 6s
+
+[exit 0, 6s]

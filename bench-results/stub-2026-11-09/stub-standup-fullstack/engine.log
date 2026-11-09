@@ -1,0 +1,6 @@
+
+$ node_modules/.bin/tsx scripts/bench/run-task.mjs bench-results/stub-2026-11-09/stub-standup-fullstack/task.json bench-results/stub-2026-11-09/stub-standup-fullstack   (cwd .)
+[task stub-standup-fullstack] run=8f70df8a-1acb-4e34-a15b-b3af391f1782 provider=mock
+[task stub-standup-fullstack] engine status=completed files=13 calls=15 3s
+
+[exit 0, 3s]

@@ -1,0 +1,171 @@
+{
+  "id": "stub-standup-fullstack",
+  "category": "stub",
+  "outcome": "pass",
+  "reason": "installed, built and served",
+  "engineStatus": "completed",
+  "engineMs": 2957,
+  "files": 13,
+  "stages": {
+    "install": {
+      "code": 0,
+      "timedOut": false,
+      "durationMs": 1713
+    },
+    "build": {
+      "code": 0,
+      "timedOut": false,
+      "durationMs": 818
+    },
+    "checkServer": {
+      "code": 0,
+      "timedOut": false,
+      "durationMs": 129
+    },
+    "smoke": {
+      "ok": true,
+      "reason": "API answered: /api/health 200, /api/updates 200"
+    },
+    "preview": {
+      "ok": true,
+      "reason": "index.html and 2 asset(s) served"
+    }
+  },
+  "modelCalls": [
+    {
+      "phase": "spec",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 12426,
+      "outputChars": 1404
+    },
+    {
+      "phase": "architect",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 13779,
+      "outputChars": 682
+    },
+    {
+      "phase": "architect",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 19042,
+      "outputChars": 6028
+    },
+    {
+      "phase": "scaffold",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 16490,
+      "outputChars": 638
+    },
+    {
+      "phase": "scaffold",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 16095,
+      "outputChars": 313
+    },
+    {
+      "phase": "scaffold",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 16392,
+      "outputChars": 546
+    },
+    {
+      "phase": "scaffold",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 16368,
+      "outputChars": 1311
+    },
+    {
+      "phase": "scaffold",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 16335,
+      "outputChars": 320
+    },
+    {
+      "phase": "coder",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 18827,
+      "outputChars": 442
+    },
+    {
+      "phase": "coder",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 18913,
+      "outputChars": 663
+    },
+    {
+      "phase": "coder",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 3,
+      "inputChars": 18901,
+      "outputChars": 1145
+    },
+    {
+      "phase": "coder",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 2,
+      "inputChars": 18808,
+      "outputChars": 894
+    },
+    {
+      "phase": "coder",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 18902,
+      "outputChars": 252
+    },
+    {
+      "phase": "qa",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 20496,
+      "outputChars": 329
+    },
+    {
+      "phase": "finalize",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 8142,
+      "outputChars": 163
+    }
+  ]
+}

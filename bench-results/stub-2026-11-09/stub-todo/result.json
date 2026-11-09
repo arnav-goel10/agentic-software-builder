@@ -1,0 +1,108 @@
+{
+  "id": "stub-todo",
+  "category": "stub",
+  "outcome": "pass",
+  "reason": "installed, built and served",
+  "engineStatus": "completed",
+  "engineMs": 5532,
+  "files": 9,
+  "stages": {
+    "install": {
+      "code": 0,
+      "timedOut": false,
+      "durationMs": 1506
+    },
+    "build": {
+      "code": 0,
+      "timedOut": false,
+      "durationMs": 882
+    },
+    "preview": {
+      "ok": true,
+      "reason": "index.html and 2 asset(s) served"
+    }
+  },
+  "modelCalls": [
+    {
+      "phase": "spec",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 12476,
+      "outputChars": 843
+    },
+    {
+      "phase": "architect",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 15581,
+      "outputChars": 456
+    },
+    {
+      "phase": "architect",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 19898,
+      "outputChars": 2091
+    },
+    {
+      "phase": "scaffold",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 18274,
+      "outputChars": 345
+    },
+    {
+      "phase": "scaffold",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 18401,
+      "outputChars": 714
+    },
+    {
+      "phase": "coder",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 18107,
+      "outputChars": 574
+    },
+    {
+      "phase": "coder",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 2,
+      "inputChars": 18123,
+      "outputChars": 1315
+    },
+    {
+      "phase": "qa",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 2,
+      "inputChars": 16365,
+      "outputChars": 308
+    },
+    {
+      "phase": "finalize",
+      "provider": "mock",
+      "model": "mock-model",
+      "ok": true,
+      "durationMs": 1,
+      "inputChars": 8088,
+      "outputChars": 147
+    }
+  ]
+}
